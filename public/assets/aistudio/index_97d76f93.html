@@ -1,0 +1,2179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ocean Shipping Lines - Bill of Lading Management System</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Calibri:wght@400;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  
+  <!-- JavaScript CDNs: ExcelJS, FileSaver, htmlToImage, jsPDF, Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Google Cloud Firestore Compat SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    body {
+      font-family: 'Calibri', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #f1f5f9;
+      color: #0f172a;
+    }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    
+    #bill-of-lading-sheet textarea,
+    #bill-of-lading-sheet input {
+      overflow: hidden !important;
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+    }
+    #bill-of-lading-sheet textarea::-webkit-scrollbar,
+    #bill-of-lading-sheet input::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
+
+    @media print {
+      @page { size: A4 portrait; margin: 4mm; }
+      html, body {
+        margin: 0 !important; padding: 0 !important;
+        background: #fff !important; color: #000 !important;
+        -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+      }
+      .no-print { display: none !important; }
+      #bill-of-lading-sheet {
+        box-shadow: none !important; border: 2px solid #1F4E79 !important;
+        margin: 0 auto !important; width: 100% !important; max-width: 100% !important;
+        transform: none !important;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col pb-12">
+
+  <!-- Top Navigation Header -->
+  <header class="no-print bg-[#1F4E79] text-white sticky top-0 z-50 shadow-md">
+    <div class="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded bg-white text-[#1F4E79] flex items-center justify-center font-black text-xs shadow-xs">
+          BL
+        </div>
+        <div>
+          <h1 class="text-sm font-bold tracking-tight text-white flex items-center gap-2">
+            Ocean Shipping Lines — Bill of Lading
+            <span class="text-[10px] bg-blue-950 text-blue-200 font-mono px-1.5 py-0.5 rounded border border-blue-400/30">
+              PRO Cloud
+            </span>
+          </h1>
+          <p class="text-[11px] text-blue-200">Ocean Shipping Lines &bull; Google Cloud Firestore Persistence &bull; Excel Export</p>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center flex-wrap gap-2">
+        <button id="btn-save-cloud" type="button" onclick="saveToCloud()" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded shadow cursor-pointer transition-colors" title="Save this document to Google Cloud Firestore">
+          <i data-lucide="cloud-upload" class="w-4 h-4"></i>
+          <span id="save-cloud-text">Save to Cloud</span>
+        </button>
+
+        <button id="btn-saved-list" type="button" onclick="openSavedListModal()" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-900 border border-sky-300 text-xs font-semibold rounded shadow cursor-pointer transition-colors" title="View all saved Bills of Lading in Google Cloud">
+          <i data-lucide="database" class="w-4 h-4 text-sky-700"></i>
+          <span>Saved List</span>
+          <span id="saved-bl-count-badge" class="bg-sky-700 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold">0</span>
+        </button>
+
+        <button id="btn-export-excel" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded shadow cursor-pointer transition-colors">
+          <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+          Export to Excel (.xlsx)
+        </button>
+        <button id="btn-print" type="button" onclick="window.print()" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold rounded shadow cursor-pointer transition-colors">
+          <i data-lucide="printer" class="w-4 h-4"></i>
+          Print A4
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Controls Bar: Quick Actions & Zoom -->
+  <div class="no-print bg-white border-b border-slate-200 px-4 py-2">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
+      <div class="flex items-center gap-2">
+        <button id="btn-top-add-notify" type="button" onclick="handleAddNotifyParty()" class="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-[#1F4E79] font-bold rounded border border-blue-200 text-xs cursor-pointer">
+          <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+          + Add Notify Party
+        </button>
+        <button id="btn-top-bulk-paste" type="button" onclick="openBulkPasteModal()" class="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold rounded border border-emerald-300 text-xs cursor-pointer">
+          <i data-lucide="clipboard-list" class="w-3.5 h-3.5 text-emerald-700"></i>
+          Paste Container List (All together)
+        </button>
+        <button id="btn-top-add-container" type="button" onclick="handleAddContainer()" class="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-[#1F4E79] font-bold rounded border border-blue-200 text-xs cursor-pointer">
+          <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+          + Add Container
+        </button>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <span class="text-slate-500">Zoom:</span>
+        <div class="inline-flex items-center bg-slate-100 rounded border border-slate-200 p-0.5">
+          <button id="btn-zoom-out" type="button" class="p-1 text-slate-600 hover:text-slate-900 rounded cursor-pointer">
+            <i data-lucide="zoom-out" class="w-3.5 h-3.5"></i>
+          </button>
+          <span id="zoom-text" class="font-mono text-[11px] px-2 text-slate-700 min-w-[44px] text-center">90%</span>
+          <button id="btn-zoom-in" type="button" class="p-1 text-slate-600 hover:text-slate-900 rounded cursor-pointer">
+            <i data-lucide="zoom-in" class="w-3.5 h-3.5"></i>
+          </button>
+          <button id="btn-zoom-reset" type="button" class="p-1 text-slate-500 hover:text-slate-800 rounded cursor-pointer">
+            <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Workspace: Printable Document Sheet -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 flex justify-center overflow-auto">
+    <div id="sheet-wrapper" class="w-full max-w-[860px] transition-transform duration-150 origin-top flex justify-center">
+      
+      <!-- 1-PAGE STRICT A4 BILL OF LADING SHEET -->
+      <div id="bill-of-lading-sheet" class="bg-white text-slate-900 font-sans mx-auto border-2 border-[#1F4E79] shadow-xl print:shadow-none print:border-[#1F4E79] max-w-[860px] w-full select-text">
+        
+        <!-- 1. TOP HEADER & BOOKING REF -->
+        <div class="bg-[#1F4E79] text-white p-2 flex items-center justify-between border-b border-[#1F4E79]">
+          <div class="flex items-center gap-2 flex-1">
+            <span class="font-extrabold text-sm sm:text-base tracking-wider text-white whitespace-nowrap">
+              BILL OF LADING —
+            </span>
+            <input
+              type="text"
+              id="f-headerTitle"
+              value="FARAN SUGARS MILLS LTD"
+              placeholder="COMPANY NAME"
+              class="font-bold text-sm sm:text-base tracking-wide text-rose-300 border-0 bg-transparent p-0 focus:outline-none flex-1"
+            />
+          </div>
+          <div class="flex items-center gap-1 font-mono text-xs font-bold text-white shrink-0 ml-4">
+            <span class="text-blue-200">B/L:</span>
+            <input
+              type="text"
+              id="f-blNumber"
+              value="OSL-2024-PK40156"
+              placeholder="B/L Number"
+              class="font-mono font-bold text-xs text-right border-0 bg-transparent p-0 focus:outline-none text-white w-36"
+            />
+          </div>
+        </div>
+
+        <!-- Sub-banner -->
+        <div class="bg-[#D9E1F2] text-[#1F4E79] px-2.5 py-1 text-[9.5px] font-bold border-b border-[#BDD7EE] flex flex-wrap items-center justify-between gap-1">
+          <div class="flex items-center gap-1">
+            <span>BOOKING REF:</span>
+            <input
+              type="text"
+              id="f-bookingRef"
+              value="OSL-40156/24(CRO-3476/24)"
+              placeholder="BOOKING REF NO"
+              class="font-mono font-bold text-[#1F4E79] border-0 bg-transparent p-0 focus:outline-none w-56"
+            />
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="text-[#1F4E79]/70">|</span>
+            <span>CARRIER:</span>
+            <input
+              type="text"
+              id="f-carrierName"
+              value="MOL / OCEAN SHIPPING LINES"
+              placeholder="Carrier"
+              class="font-bold text-[#1F4E79] border-0 bg-transparent p-0 focus:outline-none w-52"
+            />
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="text-[#1F4E79]/70">|</span>
+            <span>B/L NO:</span>
+            <span id="display-blNumber" class="font-mono">OSL-2024-PK40156</span>
+          </div>
+        </div>
+
+        <!-- 2. SHIPPER / REFERENCE NO ROW -->
+        <div class="grid grid-cols-12 border-b border-[#1F4E79]">
+          <!-- Left: Shipper / Exporter -->
+          <div class="col-span-8 border-r border-[#1F4E79]">
+            <div class="bg-[#D9E1F2] text-[#1F4E79] px-2 py-0.5 font-bold uppercase text-[8.5px] border-b border-[#BDD7EE]">
+              SHIPPER / EXPORTER
+            </div>
+            <div class="p-1.5">
+              <textarea
+                id="f-shipperText"
+                rows="4"
+                style="min-height: 80px;"
+                class="w-full font-bold uppercase text-slate-900 border-0 bg-transparent p-0 resize-none focus:outline-none text-[10.5px] leading-snug"
+              >FARAN SUGAR MILLS LTD
+43-1-E,(B) P.E.C.H.S, BLOCK-6, OFF RAZI ROAD,
+SHAHRAH-E-FAISAL
+KARACHI 75400 PAKISTAN</textarea>
+            </div>
+          </div>
+
+          <!-- Right: B/L References & Freight Terms -->
+          <div class="col-span-4 flex flex-col justify-between">
+            <div>
+              <div class="bg-[#D9E1F2] text-[#1F4E79] px-2 py-0.5 font-bold uppercase text-[8.5px] border-b border-[#BDD7EE]">
+                B/L REFERENCES & FREIGHT TERMS
+              </div>
+              <div class="p-1.5 space-y-1.5">
+                <div>
+                  <span class="block font-bold text-slate-600 uppercase text-[8px]">
+                    REFERENCE NO:
+                  </span>
+                  <input
+                    type="text"
+                    id="f-referenceNo"
+                    value="REF-FSM-1040MT"
+                    class="w-full font-mono font-bold text-slate-900 border-0 bg-transparent p-0 focus:outline-none text-[10px]"
+                  />
+                </div>
+                <div class="pt-1 border-t border-slate-200">
+                  <span class="block font-bold text-slate-600 uppercase text-[8px]">
+                    CARRIER:
+                  </span>
+                  <input
+                    type="text"
+                    id="f-carrierNameSide"
+                    value="MOL / OCEAN SHIPPING LINES"
+                    class="w-full font-bold uppercase text-slate-900 border-0 bg-transparent p-0 focus:outline-none text-[10px]"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. CONSIGNEE OR ORDER & FREIGHT TERMS -->
+        <div class="grid grid-cols-12 border-b border-[#1F4E79]">
+          <div class="col-span-8 border-r border-[#1F4E79]">
+            <div class="bg-[#D9E1F2] text-[#1F4E79] px-2 py-0.5 font-bold uppercase text-[8.5px] border-b border-[#BDD7EE]">
+              CONSIGNEE OR ORDER
+            </div>
+            <div class="p-1.5">
+              <textarea
+                id="f-consigneeText"
+                rows="2"
+                class="w-full font-bold uppercase text-slate-900 border-0 bg-transparent p-0 resize-none focus:outline-none text-[10.5px]"
+              >TO ORDER</textarea>
+            </div>
+          </div>
+
+          <div class="col-span-4 flex flex-col justify-between">
+            <div class="bg-[#D9E1F2] text-[#1F4E79] px-2 py-0.5 font-bold uppercase text-[8.5px] border-b border-[#BDD7EE]">
+              FREIGHT TERMS
+            </div>
+            <div class="p-1.5 flex-1 flex flex-col justify-center">
+              <input
+                type="text"
+                id="f-freightPayableAt"
+                value="FREIGHT PREPAID"
+                class="w-full font-bold uppercase text-slate-900 border-0 bg-transparent p-0 focus:outline-none text-xs"
+              />
+              <span id="display-movement-terms" class="text-[8.5px] font-mono text-slate-500 font-semibold mt-0.5">(FCL/FCL)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. FORM E NO(S) -->
+        <div class="grid grid-cols-12 border-b border-[#1F4E79] bg-rose-50/20">
+          <div class="col-span-12 px-2 py-1 flex items-center gap-2">
+            <span class="font-bold text-[#C00000] uppercase tracking-wide text-[9.5px] whitespace-nowrap">
+              FORM E NO(s):
+            </span>
+            <input
+              type="text"
+              id="f-formENumber"
+              value="AHB-EXP-127261-06122024"
+              class="w-full font-mono font-bold uppercase text-[#C00000] border-0 bg-transparent p-0 focus:outline-none text-[10.5px]"
+            />
+          </div>
+        </div>
+
+        <!-- 5. DYNAMIC NOTIFY PARTIES SECTION -->
+        <div id="notify-parties-grid"></div>
+
+        <!-- 6. ROUTING -->
+        <div class="grid grid-cols-12 border-b border-[#1F4E79]">
+          <div class="col-span-6 border-r border-[#1F4E79]">
+            <div class="bg-[#D9E1F2] text-[#1F4E79] px-2 py-0.5 font-bold uppercase text-[8px] border-b border-[#BDD7EE]">
+              VESSEL AND VOY NO:
+            </div>
+            <div class="p-1.5">
+              <input
+                type="text"
+                id="f-vesselAndVoy"
+                value="MOL PRESENCE   VOYAGE: 19"
+                class="w-full font-bold uppercase text-slate-900 border-0 bg-transparent p-0 focus:outline-none text-[10px]"
+              />
+            </div>
+          </div>
+
+          <div class="col-span-6">
+            <div class="bg-[#D9E1F2] text-[#1F4E79] px-2 py-0.5 font-bold uppercase text-[8px] border-b border-[#BDD7EE]">
+              PLACE OF DELIVERY:
+            </div>
+            <div class="p-1.5">
+              <input
+                type="text"
+                id="f-placeOfDelivery"
+                value="LAEM CHABANG THAILAND"
+                class="w-full font-bold uppercase text-slate-900 border-0 bg-transparent p-0 focus:outline-none text-[10px]"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-12 border-b border-[#1F4E79]">
+          <div class="col-span-6 border-r border-[#1F4E79]">
+            <div class="bg-[#D9E1F2] text-[#1F4E79] px-2 py-0.5 font-bold uppercase text-[8px] border-b border-[#BDD7EE]">
+              PORT OF LOADING:
+            </div>
+            <div class="p-1.5">
+              <input
+                type="text"
+                id="f-portOfLoading"
+                value="KARACHI, PAKISTAN"
+                class="w-full font-bold uppercase text-slate-900 border-0 bg-transparent p-0 focus:outline-none text-[10px]"
+              />
+            </div>
+          </div>
+
+          <div class="col-span-6">
+            <div class="bg-[#D9E1F2] text-[#1F4E79] px-2 py-0.5 font-bold uppercase text-[8px] border-b border-[#BDD7EE]">
+              PORT OF DISCHARGE:
+            </div>
+            <div class="p-1.5">
+              <input
+                type="text"
+                id="f-portOfDischarge"
+                value="LAEM CHABANG THAILAND"
+                class="w-full font-bold uppercase text-slate-900 border-0 bg-transparent p-0 focus:outline-none text-[10px]"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- 7. CARGO HEADER & DESCRIPTION -->
+        <div>
+          <div class="grid grid-cols-12 bg-[#1F4E79] text-white border-b border-[#1F4E79]">
+            <div class="col-span-3 border-r border-blue-400/40 px-2 py-1 font-bold text-[8.5px] uppercase">
+              MARKS AND NOS:
+            </div>
+            <div class="col-span-5 border-r border-blue-400/40 px-2 py-1 font-bold text-[8.5px] uppercase">
+              NUMBER AND KIND OF PACKAGES: DESCRIPTION OF GOODS
+            </div>
+            <div class="col-span-2 border-r border-blue-400/40 px-2 py-1 font-bold text-[8.5px] uppercase text-right">
+              GROSS WEIGHT
+            </div>
+            <div class="col-span-2 px-2 py-1 font-bold text-[8.5px] uppercase text-right">
+              MEASURMENT
+            </div>
+          </div>
+
+          <!-- Content Row -->
+          <div class="grid grid-cols-12 border-b border-[#1F4E79]">
+            <div class="col-span-3 border-r border-[#1F4E79] p-1.5 flex flex-col h-full">
+              <textarea
+                id="f-marksAndNumbers"
+                rows="14"
+                style="min-height: 220px;"
+                class="w-full flex-1 font-bold uppercase text-slate-900 border-0 bg-transparent p-0 resize-none overflow-hidden focus:outline-none text-[10px] leading-snug"
+              >FARAN SUGAR MILLS LTD
+SHAIKH BHIRKIO
+GROSS WEIGHT 50.135 KGS
+NET WEIGHT 50 KGS
+EXPIRY DATE DECEMBER 2026</textarea>
+            </div>
+
+            <div class="col-span-5 border-r border-[#1F4E79] p-1.5 flex flex-col h-full">
+              <textarea
+                id="f-cargoDescription"
+                rows="14"
+                style="min-height: 220px;"
+                class="w-full flex-1 font-medium uppercase text-slate-950 border-0 bg-transparent p-0 resize-none overflow-hidden focus:outline-none text-[9px] leading-snug"
+              >40X20' FCL CONTAINING 1040.00 METRIC TONS
+PAKISTAN WHITE REFINED SUGAR
+WITH MINIMUM POLARIZATION 99.70 DEGREES,
+MAXIMUM MOISTURE 0.06 PERCENT ,
+MAXIMUM ASH 0.05 PERCENT, MAXIMUM COLOUR 45 ICUMSA UNITS,
+PACKING: IN 50 KGS NET EACH NEW POLYPROPYLENE BAG WITH INNER LINER
+CROP YEAR 2023-24 AND EXPIRY DATE DECEMBER 2026
+FI NO AHB-EXP-127261-06122024
+NET WEIGHT : 1040.000 MT
+GROSS WEIGHT : 1042.808 M.T
+IRREVOCABLE DOCUMENTARY CREDIT NUMBER ILC34970481124SG DATE:14-11-2024
+FREIGHT PREPAID</textarea>
+            </div>
+
+            <div class="col-span-2 border-r border-[#1F4E79] p-1.5 flex flex-col justify-between text-right font-mono">
+              <div>
+                <input
+                  type="text"
+                  id="f-grossWeight"
+                  value="1,042.8080"
+                  class="w-full text-right font-bold text-slate-950 border-0 bg-transparent p-0 focus:outline-none text-xs"
+                />
+                <span id="f-grossWeightUnit" class="text-[9px] text-[#1F4E79] font-bold block">M/TONS</span>
+              </div>
+
+              <div class="my-2 pt-2 border-t border-dashed border-slate-300">
+                <span class="text-[8px] uppercase font-sans text-slate-500 font-bold block">NETT WEIGHT</span>
+                <input
+                  type="text"
+                  id="f-nettWeight"
+                  value="1040.000"
+                  class="w-full text-right font-bold text-slate-950 border-0 bg-transparent p-0 focus:outline-none text-[10.5px]"
+                />
+                <span id="f-nettWeightUnit" class="text-[8.5px] text-[#1F4E79] font-bold block">M/TONS</span>
+              </div>
+
+              <div>
+                <input
+                  type="text"
+                  id="f-totalPackagesCount"
+                  value="20800.00"
+                  class="w-full text-right font-bold text-slate-950 border-0 bg-transparent p-0 focus:outline-none text-[10.5px]"
+                />
+                <input
+                  type="text"
+                  id="f-totalPackagesUnit"
+                  value="BAGS"
+                  placeholder="BAGS"
+                  class="w-full text-right font-bold text-[8.5px] text-[#1F4E79] uppercase border-0 bg-transparent p-0 focus:outline-none cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <div class="col-span-2 p-1.5 text-right font-mono">
+              <input
+                type="text"
+                id="f-measurement"
+                value="CBM"
+                class="w-full text-right text-slate-900 border-0 bg-transparent p-0 focus:outline-none text-xs"
+              />
+            </div>
+          </div>
+
+          <!-- 8. EXPANDED CONTAINER MANIFEST & SPECIAL CLAUSES -->
+          <div class="grid grid-cols-12 border-b border-[#1F4E79]">
+            <div class="col-span-8 border-r border-[#1F4E79] flex flex-col justify-between">
+              <div>
+                <div class="bg-[#1F4E79] text-white px-2 py-1 flex items-center justify-between">
+                  <div class="flex items-center gap-1.5 font-bold text-[9px] uppercase tracking-wide">
+                    <span>SEAL NO: / CONTAINER NO:</span>
+                    <span id="cont-count-badge" class="text-blue-200 font-mono font-bold">(1 Cont)</span>
+                  </div>
+                  
+                  <div class="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onclick="openBulkPasteModal()"
+                      class="no-print text-[8.5px] font-semibold text-[#1F4E79] bg-white hover:bg-blue-50 px-2 py-0.5 rounded shadow-xs flex items-center gap-1 cursor-pointer transition-all"
+                    >
+                      <i data-lucide="clipboard-list" class="w-3 h-3 text-[#1F4E79]"></i>
+                      Paste List (All together)
+                    </button>
+
+                    <button
+                      type="button"
+                      onclick="handleAddContainer()"
+                      class="no-print text-[8.5px] font-semibold text-[#1F4E79] bg-white hover:bg-blue-50 px-1.5 py-0.5 rounded shadow-xs flex items-center gap-1 cursor-pointer transition-all"
+                    >
+                      <i data-lucide="plus" class="w-2.5 h-2.5"></i>
+                      Add Container
+                    </button>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 divide-x divide-[#BDD7EE] bg-[#D9E1F2] text-[#1F4E79] text-[7.5px] font-bold uppercase tracking-wider py-0.5 border-b border-[#BDD7EE]">
+                  <div class="grid grid-cols-12 px-1 text-center">
+                    <span class="col-span-4 text-left font-bold">Container No.</span>
+                    <span class="col-span-3 text-right">Net Wt</span>
+                    <span class="col-span-3 text-right">Gross Wt</span>
+                    <span id="col1-unit-header" class="col-span-2 text-right">Bags</span>
+                  </div>
+                  <div class="grid grid-cols-12 px-1 text-center">
+                    <span class="col-span-4 text-left font-bold">Container No.</span>
+                    <span class="col-span-3 text-right">Net Wt</span>
+                    <span class="col-span-3 text-right">Gross Wt</span>
+                    <span id="col2-unit-header" class="col-span-2 text-right">Bags</span>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 divide-x divide-[#BDD7EE] text-[8px] font-mono">
+                  <div id="containers-col-1" class="divide-y divide-slate-100"></div>
+                  <div id="containers-col-2" class="divide-y divide-slate-100"></div>
+                </div>
+              </div>
+
+              <div class="bg-[#D9E1F2] text-[#1F4E79] px-2 py-0.5 text-[8.5px] font-bold border-t border-[#BDD7EE] flex items-center justify-between">
+                <span id="totals-container-count">TOTALS: 1 CONTAINER(S)</span>
+                <div class="flex items-center gap-2 font-mono">
+                  <span id="totals-net-kg">NET: 1.00 KG</span>
+                  <span class="text-[#1F4E79]/50">|</span>
+                  <span id="totals-gross-kg">GROSS: 1.00 KG</span>
+                  <span class="text-[#1F4E79]/50">|</span>
+                  <span id="totals-bags">1 BAGS</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-span-4 p-2 flex flex-col justify-between bg-white relative">
+              <div>
+                <div class="bg-[#D9E1F2] text-[#1F4E79] px-2 py-0.5 font-bold uppercase text-[8px] border-b border-[#BDD7EE] mb-1.5 -mx-2 -mt-2 flex items-center justify-between">
+                  <span>SPECIAL INSTRUCTIONS / CLAUSES</span>
+                  <button
+                    type="button"
+                    id="btn-open-clauses-menu"
+                    onclick="toggleClausesMenu()"
+                    class="no-print p-0.5 hover:bg-[#BDD7EE] rounded text-[#1F4E79] cursor-pointer transition-colors"
+                  >
+                    <i data-lucide="more-vertical" class="w-3 h-3"></i>
+                  </button>
+                </div>
+
+                <!-- Clauses Popover Menu -->
+                <div id="clauses-popover" class="no-print hidden absolute top-7 right-1 z-50 w-72 bg-white rounded-lg shadow-2xl border border-slate-300 p-3 text-left">
+                  <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-200">
+                    <span class="font-bold text-xs text-[#1F4E79] uppercase tracking-wide">
+                      Select Clauses / Presets
+                    </span>
+                    <button type="button" onclick="toggleClausesMenu(false)" class="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer">
+                      <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                    </button>
+                  </div>
+
+                  <div class="space-y-1 mb-3">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase block">1-Click Presets:</span>
+                    <button type="button" onclick="handleSelectClausePreset('faran-sugar')" class="w-full text-left px-2 py-1.5 rounded text-xs font-semibold bg-slate-50 hover:bg-blue-50 hover:text-[#1F4E79] border border-slate-200 flex items-center justify-between cursor-pointer transition-colors">
+                      <span>Standard Sugar / Dry Cargo</span>
+                      <span class="text-[9px] text-slate-400 font-mono">(5)</span>
+                    </button>
+                    <button type="button" onclick="handleSelectClausePreset('reefer')" class="w-full text-left px-2 py-1.5 rounded text-xs font-semibold bg-blue-50/70 text-[#1F4E79] border border-blue-300 flex items-center justify-between cursor-pointer transition-colors">
+                      <span>Reefer Cargo (-18°C)</span>
+                      <span class="text-[9px] text-blue-600 font-mono font-bold">(7)</span>
+                    </button>
+                    <button type="button" onclick="handleSelectClausePreset('general-fcl')" class="w-full text-left px-2 py-1.5 rounded text-xs font-semibold bg-slate-50 hover:bg-blue-50 hover:text-[#1F4E79] border border-slate-200 flex items-center justify-between cursor-pointer transition-colors">
+                      <span>General Containerized Cargo</span>
+                      <span class="text-[9px] text-slate-400 font-mono">(6)</span>
+                    </button>
+                  </div>
+
+                  <div class="mb-3">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase block mb-1">Toggle Clauses:</span>
+                    <div id="clauses-toggle-list" class="max-h-36 overflow-y-auto space-y-1 text-[11px] pr-1"></div>
+                  </div>
+
+                  <div class="pt-2 border-t border-slate-200 flex gap-1">
+                    <input type="text" id="input-custom-clause" placeholder="Add custom clause..." class="flex-1 text-xs border border-slate-300 rounded px-2 py-1 uppercase" />
+                    <button type="button" onclick="handleAddCustomClause()" class="px-2 py-1 bg-[#1F4E79] text-white text-xs font-bold rounded cursor-pointer">
+                      Add
+                    </button>
+                  </div>
+                </div>
+
+                <div id="special-clauses-display" class="space-y-1 font-bold text-slate-900 uppercase tracking-tight text-[9px]"></div>
+              </div>
+
+              <div class="mt-3 pt-1 border-t border-[#BDD7EE]">
+                <textarea
+                  id="f-containerSummaryLine"
+                  rows="2"
+                  style="min-height: 34px;"
+                  class="w-full font-bold uppercase text-[#1F4E79] border-0 bg-transparent p-0 resize-none overflow-hidden focus:outline-none text-[8.5px] leading-snug"
+                >40X20 CONT 520-BAGS NET WT 26000-KGS GR WT 26070.20 KGS EACH CONT</textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-[#D9E1F2] text-[#1F4E79] py-0.5 px-2 border-b border-[#1F4E79] text-center text-[8.5px] font-bold tracking-wider">
+            ABOVE PARTICULARS AS DECLARED BY SHIPPER
+          </div>
+        </div>
+
+        <!-- 9. BOTTOM FOOTER GRID -->
+        <div class="grid grid-cols-12 divide-x divide-[#1F4E79] text-slate-900 border-t border-[#1F4E79]">
+          <div class="col-span-5 divide-y divide-[#1F4E79]">
+            <div class="p-1.5">
+              <span class="block font-bold text-[#1F4E79] uppercase tracking-tight text-[8px]">
+                TOTAL NO. OF CONTAINERS/PACKAGES
+              </span>
+              <input
+                type="text"
+                id="f-totalContainersPackages"
+                value="1X20' FCL"
+                placeholder="29X20' FCL"
+                class="w-full font-mono font-bold uppercase border-0 bg-transparent p-0 focus:outline-none text-[10px]"
+              />
+            </div>
+            <div class="p-1.5">
+              <span class="block font-bold text-[#1F4E79] uppercase tracking-tight text-[8px]">
+                MOVEMENT
+              </span>
+              <input
+                type="text"
+                id="f-movement"
+                value="FCL/FCL"
+                placeholder="FCL/FCL"
+                class="w-full font-mono font-bold uppercase border-0 bg-transparent p-0 focus:outline-none text-[10px]"
+              />
+            </div>
+          </div>
+
+          <div class="col-span-4 divide-y divide-[#1F4E79]">
+            <div class="p-1.5">
+              <span class="block font-bold text-[#1F4E79] uppercase tracking-tight text-[8px]">
+                FREIGHT PAYABLE AT
+              </span>
+              <input
+                type="text"
+                id="f-freightPayableAtFooter"
+                value="FREIGHT PREPAID"
+                placeholder="FREIGHT PREPAID"
+                class="w-full font-mono font-bold uppercase border-0 bg-transparent p-0 focus:outline-none text-[10px]"
+              />
+            </div>
+            <div class="p-1.5">
+              <span class="block font-bold text-[#1F4E79] uppercase tracking-tight text-[8px]">
+                NUMBER OF ORIGINAL B/L
+              </span>
+              <input
+                type="text"
+                id="f-numberOfOriginals"
+                value="(3) THREE"
+                placeholder="(3) THREE"
+                class="w-full font-mono font-bold uppercase border-0 bg-transparent p-0 focus:outline-none text-[10px]"
+              />
+            </div>
+          </div>
+
+          <div class="col-span-3 p-1.5 flex flex-col justify-between">
+            <div>
+              <span class="block font-bold text-[#1F4E79] uppercase tracking-tight text-[8px]">
+                PLACE AND DATE OF ISSUE
+              </span>
+              <input
+                type="text"
+                id="f-placeAndDateOfIssue"
+                value="KARACHI ......"
+                placeholder="KARACHI ......"
+                class="w-full font-mono font-bold uppercase border-0 bg-transparent p-0 focus:outline-none text-[10px]"
+              />
+            </div>
+            <div class="pt-3">
+              <span class="block font-bold text-[#1F4E79] uppercase text-[7.5px] tracking-tight">
+                AS CARRIER / AUTHORIZED AGENT
+              </span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <!-- BULK PASTE MODAL -->
+  <div id="bulk-paste-modal" class="no-print hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-lg w-full p-4 sm:p-5 text-left">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-200">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-blue-100 text-[#1F4E79] flex items-center justify-center font-bold">
+            <i data-lucide="clipboard-list" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-900">Paste Containers (All together)</h3>
+            <p class="text-[11px] text-slate-500">Paste full container list from Excel, WhatsApp, or Notepad</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeBulkPasteModal()" class="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="py-3">
+        <label class="block text-xs font-bold text-slate-700 mb-1">
+          Paste Container Numbers (1 per line, comma, or tab separated):
+        </label>
+        <textarea
+          id="bulk-paste-textarea"
+          rows="9"
+          placeholder="BISU2834268&#10;CAIU2369026&#10;CCLU3517766&#10;CCLU3802207&#10;CLHU3363830&#10;EGHU3048530&#10;GESU3716288&#10;GLDU3067966&#10;..."
+          class="w-full font-mono text-xs uppercase p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          oninput="updateBulkCountPreview()"
+        ></textarea>
+        <div class="flex items-center justify-between mt-1 text-[11px]">
+          <span id="bulk-preview-count" class="font-semibold text-blue-700">Detected: 0 containers</span>
+          <label class="flex items-center gap-1.5 cursor-pointer text-slate-600">
+            <input type="checkbox" id="bulk-replace-existing" checked class="rounded text-[#1F4E79]" />
+            <span>Replace existing containers</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+        <button
+          type="button"
+          onclick="closeBulkPasteModal()"
+          class="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onclick="applyBulkImport()"
+          class="px-4 py-1.5 text-xs font-bold text-white bg-[#1F4E79] hover:bg-[#163a5c] rounded-lg shadow cursor-pointer flex items-center gap-1.5"
+        >
+          <i data-lucide="check" class="w-3.5 h-3.5"></i>
+          Apply & Auto-Fill Weights
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- GOOGLE CLOUD SAVED BILLS MODAL -->
+  <div id="saved-bills-modal" class="no-print hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-2xl w-full max-h-[85vh] flex flex-col text-slate-900 overflow-hidden">
+      <div class="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-blue-100 text-[#1F4E79] flex items-center justify-center">
+            <i data-lucide="database" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+              Google Cloud Saved Bills of Lading
+              <span id="modal-saved-count-badge" class="text-[10px] bg-blue-100 text-blue-800 font-mono px-2 py-0.5 rounded-full font-semibold">0 Saved</span>
+            </h3>
+            <p class="text-[11px] text-slate-500">Click any saved B/L to load all its containers and details into the sheet</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeSavedListModal()" class="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200/60 cursor-pointer">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="p-3 border-b border-slate-200 bg-white">
+        <div class="relative">
+          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+          <input
+            type="text"
+            id="saved-bl-search-input"
+            oninput="filterSavedBLList()"
+            placeholder="Search by B/L Number, Company Name, Carrier..."
+            class="w-full text-xs pl-9 pr-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      </div>
+
+      <div id="saved-bl-list-container" class="flex-1 overflow-y-auto p-4 space-y-2.5 bg-slate-50/50 min-h-[220px]"></div>
+
+      <div class="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
+        <div class="flex items-center gap-1.5 text-emerald-700 font-semibold text-[11px]">
+          <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-600"></i>
+          <span>Connected to Google Cloud Firestore</span>
+        </div>
+        <button type="button" onclick="closeSavedListModal()" class="px-3.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-md transition-colors cursor-pointer">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="cloud-toast" class="no-print hidden fixed bottom-6 right-6 z-50 bg-emerald-900 text-white border border-emerald-700 px-4 py-3 rounded-xl shadow-lg flex items-center gap-2.5 text-xs font-semibold">
+    <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400 shrink-0"></i>
+    <span id="cloud-toast-text">Saved to Google Cloud!</span>
+  </div>
+
+  <script>
+    // =========================================================================
+    // INITIAL DATA STATE
+    // =========================================================================
+    let notifyParties = [
+      {
+        id: 'np-1',
+        name: 'HUNAN ER-KANG(HK)COMPANY LIMITED',
+        address: 'ADD: ROOM 703 KOWLOON BUILDING 555 NATHAN RD, KL.\nCERTIFICATE NO. : 61603449-000-06-23-7\nCONTACT: CECILIA TEL: +86 15873056089'
+      },
+      {
+        id: 'np-2',
+        name: 'NOTIFY PARTY #2 NAME / AGENT',
+        address: 'LAEM CHABANG LOGISTICS TERMINAL 2, CHONBURI 20230, THAILAND\nTEL: +66 38 490 000'
+      }
+    ];
+
+    let containers = [
+      { id: 'c-1', containerNo: 'OSLU2834268', netWeightKg: 26000, grossWeightKg: 26070.20, packageCount: 520 },
+    ];
+
+    let specialClauses = [
+      "SHIPPER'S LOAD, STOW, WEIGHT AND COUNT"
+    ];
+
+    const ALL_AVAILABLE_CLAUSES = [
+      'CLEAN SHIPPED ON BOARD',
+      'MARINE BILL OF LADING',
+      '21 FREE DAYS AT DESTINATION.',
+      '14 FREE DAYS AT DESTINATION.',
+      'FREIGHT PREPAID',
+      'CONTAINERIZED CARGO (FCL/FCL)',
+      'REEFER TEMPERATURE TO BE MAINTAINED AT -18°C',
+      "SHIPPER'S LOAD, STOW, WEIGHT AND COUNT"
+    ];
+
+    let savedBLsList = [];
+
+    // =========================================================================
+    // FIRESTORE / CLOUD PERSISTENCE STUB
+    // =========================================================================
+    function showToast(msg = 'Saved to Google Cloud!') {
+      const toast = document.getElementById('cloud-toast');
+      const toastText = document.getElementById('cloud-toast-text');
+      if (toastText) toastText.textContent = msg;
+      if (toast) {
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 3500);
+      }
+    }
+
+    function saveToCloud() {
+      const blNumber = document.getElementById('f-blNumber').value || 'OSL-2024-PK40156';
+      const headerTitle = document.getElementById('f-headerTitle').value || 'FARAN SUGARS MILLS LTD';
+      const carrierName = document.getElementById('f-carrierName').value || 'MOL / OCEAN SHIPPING LINES';
+
+      const record = {
+        id: blNumber,
+        headerTitle,
+        blNumber,
+        bookingRef: document.getElementById('f-bookingRef').value,
+        carrierName,
+        shipperText: document.getElementById('f-shipperText').value,
+        referenceNo: document.getElementById('f-referenceNo').value,
+        consigneeText: document.getElementById('f-consigneeText').value,
+        freightPayableAt: document.getElementById('f-freightPayableAt').value,
+        formENumber: document.getElementById('f-formENumber').value,
+        vesselAndVoy: document.getElementById('f-vesselAndVoy').value,
+        placeOfDelivery: document.getElementById('f-placeOfDelivery').value,
+        portOfLoading: document.getElementById('f-portOfLoading').value,
+        portOfDischarge: document.getElementById('f-portOfDischarge').value,
+        marksAndNumbers: document.getElementById('f-marksAndNumbers').value,
+        cargoDescription: document.getElementById('f-cargoDescription').value,
+        grossWeight: document.getElementById('f-grossWeight').value,
+        nettWeight: document.getElementById('f-nettWeight').value,
+        totalPackagesCount: document.getElementById('f-totalPackagesCount').value,
+        totalPackagesUnit: getPackageUnit(),
+        measurement: document.getElementById('f-measurement').value,
+        containerSummaryLine: document.getElementById('f-containerSummaryLine').value,
+        totalContainersPackages: document.getElementById('f-totalContainersPackages').value,
+        movement: document.getElementById('f-movement').value,
+        numberOfOriginals: document.getElementById('f-numberOfOriginals').value,
+        placeAndDateOfIssue: document.getElementById('f-placeAndDateOfIssue').value,
+        notifyParties: JSON.parse(JSON.stringify(notifyParties)),
+        containers: JSON.parse(JSON.stringify(containers)),
+        specialClauses: [...specialClauses],
+        savedAt: new Date().toLocaleString()
+      };
+
+      const existingIndex = savedBLsList.findIndex(item => item.id === blNumber);
+      if (existingIndex >= 0) {
+        savedBLsList[existingIndex] = record;
+      } else {
+        savedBLsList.unshift(record);
+      }
+
+      updateSavedBadges();
+      showToast(`Bill of Lading (${blNumber}) saved successfully!`);
+    }
+
+    function updateSavedBadges() {
+      const count = savedBLsList.length;
+      document.getElementById('saved-bl-count-badge').textContent = count;
+      document.getElementById('modal-saved-count-badge').textContent = `${count} Saved`;
+    }
+
+    function openSavedListModal() {
+      document.getElementById('saved-bills-modal').classList.remove('hidden');
+      renderSavedBLList(savedBLsList);
+    }
+
+    function closeSavedListModal() {
+      document.getElementById('saved-bills-modal').classList.add('hidden');
+    }
+
+    function renderSavedBLList(list) {
+      const container = document.getElementById('saved-bl-list-container');
+      container.innerHTML = '';
+
+      if (!list || list.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-10 text-slate-400 text-xs">
+            <i data-lucide="database" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
+            <p>No Bills of Lading saved yet.</p>
+            <p class="text-[10px] text-slate-400 mt-1">Click "Save to Cloud" to store your current document.</p>
+          </div>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      list.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'bg-white p-3 rounded-lg border border-slate-200 hover:border-blue-400 shadow-xs hover:shadow transition-all flex items-center justify-between gap-3 cursor-pointer';
+        card.onclick = () => loadBLRecord(item.id);
+        card.innerHTML = `
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="font-mono font-bold text-xs text-[#1F4E79]">${item.blNumber}</span>
+              <span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-semibold">${item.containers ? item.containers.length : 0} Containers</span>
+            </div>
+            <p class="text-xs font-semibold text-slate-800 mt-0.5">${item.headerTitle || 'N/A'}</p>
+            <p class="text-[10px] text-slate-400">${item.carrierName || ''} &bull; Saved: ${item.savedAt || ''}</p>
+          </div>
+          <button type="button" class="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-[#1F4E79] text-xs font-bold rounded">
+            Load
+          </button>
+        `;
+        container.appendChild(card);
+      });
+      lucide.createIcons();
+    }
+
+    function filterSavedBLList() {
+      const q = document.getElementById('saved-bl-search-input').value.toLowerCase();
+      const filtered = savedBLsList.filter(item => 
+        (item.blNumber && item.blNumber.toLowerCase().includes(q)) ||
+        (item.headerTitle && item.headerTitle.toLowerCase().includes(q)) ||
+        (item.carrierName && item.carrierName.toLowerCase().includes(q))
+      );
+      renderSavedBLList(filtered);
+    }
+
+    function loadBLRecord(id) {
+      const rec = savedBLsList.find(item => item.id === id);
+      if (!rec) return;
+
+      document.getElementById('f-headerTitle').value = rec.headerTitle || '';
+      document.getElementById('f-blNumber').value = rec.blNumber || '';
+      document.getElementById('display-blNumber').textContent = rec.blNumber || '';
+      document.getElementById('f-bookingRef').value = rec.bookingRef || '';
+      document.getElementById('f-carrierName').value = rec.carrierName || '';
+      document.getElementById('f-carrierNameSide').value = rec.carrierName || '';
+      document.getElementById('f-shipperText').value = rec.shipperText || '';
+      document.getElementById('f-referenceNo').value = rec.referenceNo || '';
+      document.getElementById('f-consigneeText').value = rec.consigneeText || '';
+      document.getElementById('f-freightPayableAt').value = rec.freightPayableAt || '';
+      document.getElementById('f-freightPayableAtFooter').value = rec.freightPayableAt || '';
+      document.getElementById('f-formENumber').value = rec.formENumber || '';
+      document.getElementById('f-vesselAndVoy').value = rec.vesselAndVoy || '';
+      document.getElementById('f-placeOfDelivery').value = rec.placeOfDelivery || '';
+      document.getElementById('f-portOfLoading').value = rec.portOfLoading || '';
+      document.getElementById('f-portOfDischarge').value = rec.portOfDischarge || '';
+      document.getElementById('f-marksAndNumbers').value = rec.marksAndNumbers || '';
+      document.getElementById('f-cargoDescription').value = rec.cargoDescription || '';
+      document.getElementById('f-grossWeight').value = rec.grossWeight || '';
+      document.getElementById('f-nettWeight').value = rec.nettWeight || '';
+      document.getElementById('f-totalPackagesCount').value = rec.totalPackagesCount || '';
+      if (rec.totalPackagesUnit) document.getElementById('f-totalPackagesUnit').value = rec.totalPackagesUnit;
+      document.getElementById('f-measurement').value = rec.measurement || '';
+      document.getElementById('f-containerSummaryLine').value = rec.containerSummaryLine || '';
+      document.getElementById('f-totalContainersPackages').value = rec.totalContainersPackages || '';
+      document.getElementById('f-movement').value = rec.movement || '';
+      document.getElementById('f-numberOfOriginals').value = rec.numberOfOriginals || '';
+      document.getElementById('f-placeAndDateOfIssue').value = rec.placeAndDateOfIssue || '';
+
+      if (rec.notifyParties) notifyParties = JSON.parse(JSON.stringify(rec.notifyParties));
+      if (rec.containers) containers = JSON.parse(JSON.stringify(rec.containers));
+      if (rec.specialClauses) specialClauses = [...rec.specialClauses];
+
+      renderNotifyParties();
+      renderContainers();
+      renderClausesDisplay();
+      closeSavedListModal();
+      showToast(`Loaded B/L: ${rec.blNumber}`);
+    }
+
+    // Zoom Management
+    let currentZoom = 0.9;
+    function setZoom(val) {
+      currentZoom = Math.max(0.4, Math.min(1.5, val));
+      const wrapper = document.getElementById('sheet-wrapper');
+      wrapper.style.transform = `scale(${currentZoom})`;
+      document.getElementById('zoom-text').textContent = `${Math.round(currentZoom * 100)}%`;
+    }
+
+    document.getElementById('btn-zoom-in').onclick = () => setZoom(currentZoom + 0.05);
+    document.getElementById('btn-zoom-out').onclick = () => setZoom(currentZoom - 0.05);
+    document.getElementById('btn-zoom-reset').onclick = () => setZoom(1.0);
+    setZoom(0.9);
+
+    // Header title auto-sync to shipper
+    document.getElementById('f-headerTitle').addEventListener('input', (e) => {
+      const newTitle = e.target.value;
+      const shipperTextarea = document.getElementById('f-shipperText');
+      if (shipperTextarea) {
+        let lines = shipperTextarea.value.split('\n');
+        lines[0] = newTitle;
+        shipperTextarea.value = lines.join('\n');
+      }
+    });
+
+    // Cross fields synchronization
+    document.getElementById('f-blNumber').addEventListener('input', (e) => {
+      document.getElementById('display-blNumber').textContent = e.target.value;
+    });
+    document.getElementById('f-carrierName').addEventListener('input', (e) => {
+      document.getElementById('f-carrierNameSide').value = e.target.value;
+    });
+    document.getElementById('f-carrierNameSide').addEventListener('input', (e) => {
+      document.getElementById('f-carrierName').value = e.target.value;
+    });
+    document.getElementById('f-freightPayableAt').addEventListener('input', (e) => {
+      document.getElementById('f-freightPayableAtFooter').value = e.target.value;
+    });
+    document.getElementById('f-freightPayableAtFooter').addEventListener('input', (e) => {
+      document.getElementById('f-freightPayableAt').value = e.target.value;
+    });
+
+    // Package unit synchronization
+    function getPackageUnit() {
+      const el = document.getElementById('f-totalPackagesUnit');
+      return (el ? el.value.trim() : '') || 'BAGS';
+    }
+
+    function syncPackageUnit(newUnit) {
+      const upper = newUnit.toUpperCase();
+      const colLabel = upper === 'BAGS' ? 'Bags' : (upper === 'PKGS' ? 'Pkgs' : newUnit);
+
+      const col1Header = document.getElementById('col1-unit-header');
+      const col2Header = document.getElementById('col2-unit-header');
+      if (col1Header) col1Header.textContent = colLabel;
+      if (col2Header) col2Header.textContent = colLabel;
+
+      const summaryTextarea = document.getElementById('f-containerSummaryLine');
+      if (summaryTextarea) {
+        let val = summaryTextarea.value;
+        val = val.replace(/(\d+)-(BAGS|PKGS|CARTONS|BOXES|PALLETS|UNITS)/gi, `$1-${upper}`);
+        summaryTextarea.value = val;
+      }
+
+      updateTotalsBarDisplay();
+    }
+
+    document.getElementById('f-totalPackagesUnit').addEventListener('input', (e) => {
+      syncPackageUnit(e.target.value);
+    });
+
+    // Notify Parties renderer
+    function renderNotifyParties() {
+      const grid = document.getElementById('notify-parties-grid');
+      grid.innerHTML = '';
+
+      const count = notifyParties.length;
+      for (let i = 0; i < count; i += 2) {
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'grid grid-cols-12 border-b border-[#1F4E79]';
+
+        const p1 = notifyParties[i];
+        const p2 = notifyParties[i + 1];
+
+        const p1Col = document.createElement('div');
+        p1Col.className = `${p2 ? 'col-span-6 border-r border-[#1F4E79]' : 'col-span-12'}`;
+        p1Col.innerHTML = `
+          <div class="bg-[#D9E1F2] text-[#1F4E79] px-2 py-0.5 font-bold uppercase text-[8.5px] border-b border-[#BDD7EE] flex items-center justify-between">
+            <span>NOTIFY PARTY/ADDRESS #${i + 1}</span>
+            <div class="flex items-center gap-1 no-print">
+              <button type="button" onclick="handleAddNotifyParty()" class="text-[8px] bg-white text-[#1F4E79] font-bold px-1 py-0.2 rounded hover:bg-blue-50 cursor-pointer">
+                + Add Party
+              </button>
+              ${notifyParties.length > 1 ? `
+                <button type="button" onclick="handleRemoveNotifyParty('${p1.id}')" class="text-slate-400 hover:text-rose-600 p-0.5 cursor-pointer">
+                  <i data-lucide="trash-2" class="w-3 h-3"></i>
+                </button>
+              ` : ''}
+            </div>
+          </div>
+          <div class="p-1.5 space-y-1">
+            <input
+              type="text"
+              id="np-name-${p1.id}"
+              value="${p1.name}"
+              placeholder="NOTIFY PARTY NAME"
+              oninput="updateNotifyParty('${p1.id}', 'name', this.value)"
+              class="w-full font-bold uppercase text-slate-900 border-0 bg-transparent p-0 focus:outline-none text-[10.5px]"
+            />
+            <textarea
+              id="np-addr-${p1.id}"
+              rows="3"
+              placeholder="ADDRESS, CONTACT, TEL..."
+              oninput="updateNotifyParty('${p1.id}', 'address', this.value)"
+              class="w-full font-medium uppercase text-slate-800 border-0 bg-transparent p-0 resize-none focus:outline-none text-[9.5px] leading-tight"
+            >${p1.address}</textarea>
+          </div>
+        `;
+        rowDiv.appendChild(p1Col);
+
+        if (p2) {
+          const p2Col = document.createElement('div');
+          p2Col.className = 'col-span-6';
+          p2Col.innerHTML = `
+            <div class="bg-[#D9E1F2] text-[#1F4E79] px-2 py-0.5 font-bold uppercase text-[8.5px] border-b border-[#BDD7EE] flex items-center justify-between">
+              <span>NOTIFY PARTY/ADDRESS #${i + 2}</span>
+              <div class="flex items-center gap-1 no-print">
+                <button type="button" onclick="handleAddNotifyParty()" class="text-[8px] bg-white text-[#1F4E79] font-bold px-1 py-0.2 rounded hover:bg-blue-50 cursor-pointer">
+                  + Add Party
+                </button>
+                <button type="button" onclick="handleRemoveNotifyParty('${p2.id}')" class="text-slate-400 hover:text-rose-600 p-0.5 cursor-pointer">
+                  <i data-lucide="trash-2" class="w-3 h-3"></i>
+                </button>
+              </div>
+            </div>
+            <div class="p-1.5 space-y-1">
+              <input
+                type="text"
+                id="np-name-${p2.id}"
+                value="${p2.name}"
+                placeholder="NOTIFY PARTY NAME"
+                oninput="updateNotifyParty('${p2.id}', 'name', this.value)"
+                class="w-full font-bold uppercase text-slate-900 border-0 bg-transparent p-0 focus:outline-none text-[10.5px]"
+              />
+              <textarea
+                id="np-addr-${p2.id}"
+                rows="3"
+                placeholder="ADDRESS, CONTACT, TEL..."
+                oninput="updateNotifyParty('${p2.id}', 'address', this.value)"
+                class="w-full font-medium uppercase text-slate-800 border-0 bg-transparent p-0 resize-none focus:outline-none text-[9.5px] leading-tight"
+              >${p2.address}</textarea>
+            </div>
+          `;
+          rowDiv.appendChild(p2Col);
+        }
+
+        grid.appendChild(rowDiv);
+      }
+      lucide.createIcons();
+    }
+
+    function handleAddNotifyParty() {
+      const newId = `np-${Date.now()}`;
+      notifyParties.push({
+        id: newId,
+        name: `NOTIFY PARTY #${notifyParties.length + 1}`,
+        address: 'FULL ADDRESS & CONTACT DETAILS HERE'
+      });
+      renderNotifyParties();
+    }
+
+    function handleRemoveNotifyParty(id) {
+      if (notifyParties.length <= 1) return;
+      notifyParties = notifyParties.filter(p => p.id !== id);
+      renderNotifyParties();
+    }
+
+    function updateNotifyParty(id, field, val) {
+      const p = notifyParties.find(item => item.id === id);
+      if (p) p[field] = val;
+    }
+
+    // Container grid renderer & handlers
+    function renderContainers() {
+      const col1 = document.getElementById('containers-col-1');
+      const col2 = document.getElementById('containers-col-2');
+      col1.innerHTML = '';
+      col2.innerHTML = '';
+
+      const mid = Math.ceil(containers.length / 2);
+
+      containers.forEach((c, idx) => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'grid grid-cols-12 px-1 py-0.5 items-center group hover:bg-blue-50/50';
+
+        const hasNo = c.containerNo && c.containerNo.trim() !== '';
+        const netDisplay = c.netWeightKg && c.netWeightKg > 0 ? c.netWeightKg.toLocaleString('en-US', {minimumFractionDigits: 2}) : (hasNo ? '26,000.00' : '');
+        const grossDisplay = c.grossWeightKg && c.grossWeightKg > 0 ? c.grossWeightKg.toLocaleString('en-US', {minimumFractionDigits: 2}) : (hasNo ? '26,070.20' : '');
+        const bagsDisplay = c.packageCount && c.packageCount > 0 ? c.packageCount : (hasNo ? '520' : '');
+
+        itemDiv.innerHTML = `
+          <div class="col-span-4 text-left">
+            <input
+              type="text"
+              id="cont-no-${idx}"
+              data-idx="${idx}"
+              value="${c.containerNo}"
+              oninput="handleFastContainerInput(${idx}, this)"
+              onkeydown="handleContainerKeyDown(${idx}, event)"
+              onpaste="handleContainerPaste(${idx}, event)"
+              placeholder="OSLU..."
+              class="w-full uppercase font-mono font-bold text-slate-900 border-0 bg-transparent p-0 focus:outline-none text-[8.5px]"
+            />
+          </div>
+          <div class="col-span-3 text-right">
+            <input
+              type="text"
+              id="cont-net-${idx}"
+              data-idx="${idx}"
+              value="${netDisplay}"
+              oninput="handleWeightInput(${idx}, 'net', this.value)"
+              placeholder="${hasNo ? '26,000.00' : ''}"
+              class="w-full text-right border-0 bg-transparent p-0 focus:outline-none text-[8px] text-slate-700"
+            />
+          </div>
+          <div class="col-span-3 text-right">
+            <input
+              type="text"
+              id="cont-gross-${idx}"
+              data-idx="${idx}"
+              value="${grossDisplay}"
+              oninput="handleWeightInput(${idx}, 'gross', this.value)"
+              placeholder="${hasNo ? '26,070.20' : ''}"
+              class="w-full text-right border-0 bg-transparent p-0 focus:outline-none text-[8px] text-slate-700"
+            />
+          </div>
+          <div class="col-span-2 text-right flex items-center justify-end gap-0.5">
+            <input
+              type="text"
+              id="cont-bags-${idx}"
+              data-idx="${idx}"
+              value="${bagsDisplay}"
+              oninput="handleWeightInput(${idx}, 'bags', this.value)"
+              placeholder="${hasNo ? '520' : ''}"
+              class="w-full text-right border-0 bg-transparent p-0 focus:outline-none text-[8px] text-slate-800 font-semibold"
+            />
+            ${containers.length > 1 ? `
+              <button type="button" onclick="handleRemoveContainer('${c.id}')" class="no-print hidden group-hover:block text-slate-400 hover:text-rose-600 px-0.5 cursor-pointer">
+                <i data-lucide="trash-2" class="w-2 h-2"></i>
+              </button>
+            ` : ''}
+          </div>
+        `;
+
+        if (idx < mid) col1.appendChild(itemDiv);
+        else col2.appendChild(itemDiv);
+      });
+
+      updateTotalsBarDisplay();
+      lucide.createIcons();
+    }
+
+    function handleFastContainerInput(idx, inputEl) {
+      const val = inputEl.value.toUpperCase();
+      const start = inputEl.selectionStart;
+      const end = inputEl.selectionEnd;
+      inputEl.value = val;
+      if (start !== null) inputEl.setSelectionRange(start, end);
+
+      containers[idx].containerNo = val;
+      const hasNo = val.trim() !== '';
+
+      const netInput = document.getElementById(`cont-net-${idx}`);
+      const grossInput = document.getElementById(`cont-gross-${idx}`);
+      const bagsInput = document.getElementById(`cont-bags-${idx}`);
+
+      if (hasNo) {
+        if (!containers[idx].netWeightKg || containers[idx].netWeightKg === 0) containers[idx].netWeightKg = 26000;
+        if (!containers[idx].grossWeightKg || containers[idx].grossWeightKg === 0) containers[idx].grossWeightKg = 26070.2;
+        if (!containers[idx].packageCount || containers[idx].packageCount === 0) containers[idx].packageCount = 520;
+
+        if (netInput && (!netInput.value || netInput.value === '0')) netInput.value = '26,000.00';
+        if (grossInput && (!grossInput.value || grossInput.value === '0')) grossInput.value = '26,070.20';
+        if (bagsInput && (!bagsInput.value || bagsInput.value === '0')) bagsInput.value = '520';
+      } else {
+        containers[idx].netWeightKg = 0;
+        containers[idx].grossWeightKg = 0;
+        containers[idx].packageCount = 0;
+
+        if (netInput) netInput.value = '';
+        if (grossInput) grossInput.value = '';
+        if (bagsInput) bagsInput.value = '';
+      }
+
+      updateTotalsBarDisplay();
+    }
+
+    function handleWeightInput(idx, field, rawVal) {
+      const val = rawVal.replace(/,/g, '');
+      if (field === 'net') {
+        containers[idx].netWeightKg = parseFloat(val) || 0;
+      } else if (field === 'gross') {
+        containers[idx].grossWeightKg = parseFloat(val) || 0;
+      } else if (field === 'bags') {
+        containers[idx].packageCount = parseInt(val, 10) || 0;
+      }
+      updateTotalsBarDisplay();
+    }
+
+    function handleContainerKeyDown(idx, event) {
+      if (event.key === 'Enter' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        const nextIdx = idx + 1;
+        let nextInput = document.getElementById(`cont-no-${nextIdx}`);
+        if (!nextInput) {
+          containers.push({ id: `c-${Date.now()}`, containerNo: '', netWeightKg: 0, grossWeightKg: 0, packageCount: 0 });
+          renderContainers();
+          nextInput = document.getElementById(`cont-no-${nextIdx}`);
+        }
+        if (nextInput) {
+          nextInput.focus();
+          nextInput.select();
+        }
+      } else if (event.key === 'ArrowUp') {
+        if (idx > 0) {
+          event.preventDefault();
+          const prevInput = document.getElementById(`cont-no-${idx - 1}`);
+          if (prevInput) {
+            prevInput.focus();
+            prevInput.select();
+          }
+        }
+      }
+    }
+
+    function handleContainerPaste(idx, event) {
+      const pasteText = (event.clipboardData || window.clipboardData).getData('text');
+      if (!pasteText) return;
+
+      const items = pasteText
+        .split(/[\r\n\t,]+/)
+        .map(s => s.trim().toUpperCase())
+        .filter(s => s.length > 0);
+
+      if (items.length > 1) {
+        event.preventDefault();
+        for (let i = 0; i < items.length; i++) {
+          const targetIdx = idx + i;
+          if (targetIdx >= containers.length) {
+            containers.push({
+              id: `c-${Date.now()}-${targetIdx}`,
+              containerNo: items[i],
+              netWeightKg: 26000,
+              grossWeightKg: 26070.2,
+              packageCount: 520
+            });
+          } else {
+            containers[targetIdx].containerNo = items[i];
+            if (!containers[targetIdx].netWeightKg) containers[targetIdx].netWeightKg = 26000;
+            if (!containers[targetIdx].grossWeightKg) containers[targetIdx].grossWeightKg = 26070.2;
+            if (!containers[targetIdx].packageCount) containers[targetIdx].packageCount = 520;
+          }
+        }
+        renderContainers();
+        setTimeout(() => {
+          const focusIdx = Math.min(idx + items.length, containers.length - 1);
+          const nextEl = document.getElementById(`cont-no-${focusIdx}`);
+          if (nextEl) nextEl.focus();
+        }, 50);
+      }
+    }
+
+    function updateTotalsBarDisplay() {
+      const unitUpper = getPackageUnit().toUpperCase();
+      const filled = containers.filter(c => c && c.containerNo && c.containerNo.trim() !== '');
+      const filledCount = filled.length;
+
+      let sumNetKg = 0;
+      let sumGrossKg = 0;
+      let sumBags = 0;
+      filled.forEach(c => {
+        sumNetKg += (c.netWeightKg && c.netWeightKg > 0) ? c.netWeightKg : 26000;
+        sumGrossKg += (c.grossWeightKg && c.grossWeightKg > 0) ? c.grossWeightKg : 26070.2;
+        sumBags += (c.packageCount && c.packageCount > 0) ? c.packageCount : 520;
+      });
+
+      document.getElementById('cont-count-badge').textContent = `(${filledCount} Cont)`;
+      document.getElementById('totals-container-count').textContent = `TOTALS: ${filledCount} CONTAINER(S)`;
+      document.getElementById('totals-net-kg').textContent = `NET: ${sumNetKg.toLocaleString('en-US', {minimumFractionDigits: 2})} KG`;
+      document.getElementById('totals-gross-kg').textContent = `GROSS: ${sumGrossKg.toLocaleString('en-US', {minimumFractionDigits: 2})} KG`;
+      document.getElementById('totals-bags').textContent = `${sumBags.toLocaleString()} ${unitUpper}`;
+      
+      const totPkgInput = document.getElementById('f-totalContainersPackages');
+      if (totPkgInput && (totPkgInput.value.endsWith("X20' FCL") || totPkgInput.value.endsWith("X20'  FCL"))) {
+        totPkgInput.value = `${filledCount}X20' FCL`;
+      }
+    }
+
+    function handleAddContainer() {
+      containers.push({ id: `cont-${Date.now()}`, containerNo: '', netWeightKg: 0, grossWeightKg: 0, packageCount: 0 });
+      renderContainers();
+      setTimeout(() => {
+        const lastInput = document.getElementById(`cont-no-${containers.length - 1}`);
+        if (lastInput) lastInput.focus();
+      }, 40);
+    }
+
+    function handleRemoveContainer(id) {
+      if (containers.length <= 1) return;
+      containers = containers.filter(c => c.id !== id);
+      renderContainers();
+    }
+
+    // Bulk Paste Modal Functions
+    function openBulkPasteModal() {
+      const modal = document.getElementById('bulk-paste-modal');
+      const textarea = document.getElementById('bulk-paste-textarea');
+      modal.classList.remove('hidden');
+      textarea.value = '';
+      document.getElementById('bulk-preview-count').textContent = 'Detected: 0 containers';
+      textarea.focus();
+    }
+
+    function closeBulkPasteModal() {
+      document.getElementById('bulk-paste-modal').classList.add('hidden');
+    }
+
+    function updateBulkCountPreview() {
+      const text = document.getElementById('bulk-paste-textarea').value;
+      const items = text.split(/[\r\n\t,]+/).map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+      document.getElementById('bulk-preview-count').textContent = `Detected: ${items.length} containers`;
+    }
+
+    function applyBulkImport() {
+      const text = document.getElementById('bulk-paste-textarea').value;
+      const items = text.split(/[\r\n\t,]+/).map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+      if (items.length === 0) {
+        closeBulkPasteModal();
+        return;
+      }
+
+      const replaceExisting = document.getElementById('bulk-replace-existing').checked;
+      if (replaceExisting) {
+        containers = items.map((num, i) => ({
+          id: `c-${Date.now()}-${i}`,
+          containerNo: num,
+          netWeightKg: 26000,
+          grossWeightKg: 26070.2,
+          packageCount: 520
+        }));
+      } else {
+        items.forEach((num, i) => {
+          containers.push({
+            id: `c-${Date.now()}-${i}`,
+            containerNo: num,
+            netWeightKg: 26000,
+            grossWeightKg: 26070.2,
+            packageCount: 520
+          });
+        });
+      }
+
+      closeBulkPasteModal();
+      renderContainers();
+    }
+
+    // Clauses Management
+    function toggleClausesMenu(force) {
+      const popover = document.getElementById('clauses-popover');
+      if (typeof force === 'boolean') {
+        if (force) popover.classList.remove('hidden');
+        else popover.classList.add('hidden');
+      } else {
+        popover.classList.toggle('hidden');
+      }
+      renderClausesToggleList();
+    }
+
+    function renderClausesDisplay() {
+      const display = document.getElementById('special-clauses-display');
+      display.innerHTML = '';
+      specialClauses.forEach(clause => {
+        const item = document.createElement('div');
+        item.className = 'leading-tight';
+        item.textContent = clause;
+        display.appendChild(item);
+      });
+    }
+
+    function renderClausesToggleList() {
+      const toggleList = document.getElementById('clauses-toggle-list');
+      toggleList.innerHTML = '';
+      ALL_AVAILABLE_CLAUSES.forEach(cl => {
+        const active = specialClauses.includes(cl);
+        const lbl = document.createElement('label');
+        lbl.className = `flex items-start gap-1.5 p-1 rounded cursor-pointer text-left select-none ${
+          active ? 'bg-blue-50 text-[#1F4E79] font-bold' : 'text-slate-600 hover:bg-slate-50'
+        }`;
+        lbl.innerHTML = `
+          <input type="checkbox" ${active ? 'checked' : ''} class="mt-0.5 rounded text-[#1F4E79]" />
+          <span class="flex-1">${cl}</span>
+        `;
+        lbl.querySelector('input').addEventListener('change', () => {
+          if (active) specialClauses = specialClauses.filter(c => c !== cl);
+          else specialClauses.push(cl);
+          renderClausesDisplay();
+          renderClausesToggleList();
+        });
+        toggleList.appendChild(lbl);
+      });
+    }
+
+    function handleSelectClausePreset(presetKey) {
+      if (presetKey === 'reefer') {
+        specialClauses = [
+          'CLEAN SHIPPED ON BOARD',
+          'MARINE BILL OF LADING',
+          '21 FREE DAYS AT DESTINATION.',
+          'FREIGHT PREPAID',
+          'CONTAINERIZED CARGO (FCL/FCL)',
+          'REEFER TEMPERATURE TO BE MAINTAINED AT -18°C',
+          "SHIPPER'S LOAD, STOW, WEIGHT AND COUNT"
+        ];
+      } else if (presetKey === 'faran-sugar') {
+        specialClauses = [
+          'CLEAN SHIPPED ON BOARD',
+          'MARINE BILL OF LADING',
+          '21 FREE DAYS AT DESTINATION.',
+          'FREIGHT PREPAID',
+          "SHIPPER'S LOAD, STOW, WEIGHT AND COUNT"
+        ];
+      } else if (presetKey === 'general-fcl') {
+        specialClauses = [
+          'CLEAN SHIPPED ON BOARD',
+          'MARINE BILL OF LADING',
+          '14 FREE DAYS AT DESTINATION.',
+          'FREIGHT PREPAID',
+          'CONTAINERIZED CARGO (FCL/FCL)',
+          "SHIPPER'S LOAD, STOW, WEIGHT AND COUNT"
+        ];
+      }
+      renderClausesDisplay();
+      toggleClausesMenu(false);
+    }
+
+    function handleAddCustomClause() {
+      const input = document.getElementById('input-custom-clause');
+      const val = input.value.trim().toUpperCase();
+      if (!val) return;
+      if (!specialClauses.includes(val)) specialClauses.push(val);
+      if (!ALL_AVAILABLE_CLAUSES.includes(val)) ALL_AVAILABLE_CLAUSES.push(val);
+      input.value = '';
+      renderClausesDisplay();
+      renderClausesToggleList();
+    }
+
+    // Initialize UI
+    renderNotifyParties();
+    renderContainers();
+    renderClausesDisplay();
+
+    // Excel Export Functionality
+    document.getElementById('btn-export-excel').addEventListener('click', async function() {
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'Ocean Shipping Lines - Bill of Lading System';
+      workbook.created = new Date();
+
+      const COLORS = {
+        NAVY_HEADER: 'FF1F4E79',
+        NAVY_TEXT: 'FF1F4E79',
+        LIGHT_BLUE_BG: 'FFD9E1F2',
+        ICE_BLUE_ROW: 'FFF2F5F9',
+        WHITE: 'FFFFFFFF',
+        BLACK: 'FF000000',
+        GRAY_LABEL: 'FF595959',
+        RED_ACCENT: 'FFC00000',
+        BORDER_BLUE: 'FFBDD7EE',
+        BORDER_NAVY: 'FF1F4E79'
+      };
+
+      const createBorder = (color = COLORS.BORDER_BLUE, style = 'thin') => ({
+        top: { style, color: { argb: color } },
+        left: { style, color: { argb: color } },
+        bottom: { style, color: { argb: color } },
+        right: { style, color: { argb: color } },
+      });
+
+      const blueBorder = createBorder(COLORS.BORDER_BLUE, 'thin');
+      const navyBorder = createBorder(COLORS.BORDER_NAVY, 'thin');
+
+      const applyBorderToRange = (ws, startCol, startRow, endCol, endRow, border = blueBorder) => {
+        for (let r = startRow; r <= endRow; r++) {
+          for (let c = startCol; c <= endCol; c++) {
+            ws.getRow(r).getCell(c).border = border;
+          }
+        }
+      };
+
+      const headerTitle = document.getElementById('f-headerTitle').value;
+      const blNumber = document.getElementById('f-blNumber').value;
+      const bookingRef = document.getElementById('f-bookingRef').value;
+      const carrierName = document.getElementById('f-carrierName').value;
+      const shipperText = document.getElementById('f-shipperText').value;
+      const referenceNo = document.getElementById('f-referenceNo').value;
+      const consigneeText = document.getElementById('f-consigneeText').value;
+      const freightTerms = document.getElementById('f-freightPayableAt').value;
+      const movement = document.getElementById('f-movement').value;
+      const formENo = document.getElementById('f-formENumber').value;
+      const vesselAndVoy = document.getElementById('f-vesselAndVoy').value;
+      const placeOfDelivery = document.getElementById('f-placeOfDelivery').value;
+      const portOfLoading = document.getElementById('f-portOfLoading').value;
+      const portOfDischarge = document.getElementById('f-portOfDischarge').value;
+      const marksAndNumbers = document.getElementById('f-marksAndNumbers').value;
+      const cargoDescription = document.getElementById('f-cargoDescription').value;
+      const grossWeight = document.getElementById('f-grossWeight').value;
+      const grossWeightUnit = document.getElementById('f-grossWeightUnit').textContent;
+      const nettWeight = document.getElementById('f-nettWeight').value;
+      const nettWeightUnit = document.getElementById('f-nettWeightUnit').textContent;
+      const totalPackagesCount = document.getElementById('f-totalPackagesCount').value;
+      const totalPackagesUnit = getPackageUnit().toUpperCase();
+      const measurement = document.getElementById('f-measurement').value;
+      const containerSummaryLine = document.getElementById('f-containerSummaryLine').value;
+      const totalContainersPackages = document.getElementById('f-totalContainersPackages').value;
+      const numberOfOriginals = document.getElementById('f-numberOfOriginals').value;
+      const placeAndDateOfIssue = document.getElementById('f-placeAndDateOfIssue').value;
+
+      const activeContainers = containers.filter(c => c && c.containerNo && c.containerNo.trim() !== '');
+      const activeCount = activeContainers.length;
+
+      let activeNetKg = 0;
+      let activeGrossKg = 0;
+      let activeBags = 0;
+      activeContainers.forEach(c => {
+        activeNetKg += (c.netWeightKg && c.netWeightKg > 0) ? c.netWeightKg : 26000;
+        activeGrossKg += (c.grossWeightKg && c.grossWeightKg > 0) ? c.grossWeightKg : 26070.2;
+        activeBags += (c.packageCount && c.packageCount > 0) ? c.packageCount : 520;
+      });
+
+      const perContNet = activeCount > 0 ? activeNetKg / activeCount : 26000;
+      const perContGross = activeCount > 0 ? activeGrossKg / activeCount : 26070.2;
+      const perContBags = activeCount > 0 ? Math.round(activeBags / activeCount) : 520;
+
+      const formatPartyText = (party, defaultName = '', defaultAddr = '') => {
+        if (!party || (!party.name?.trim() && !party.address?.trim())) {
+          return defaultName && defaultAddr ? `${defaultName}\n${defaultAddr}` : (defaultName || defaultAddr || '');
+        }
+        const lines = [];
+        if (party.name?.trim()) lines.push(party.name.trim());
+        if (party.address?.trim()) lines.push(party.address.trim());
+        return lines.join('\n');
+      };
+
+      const n1 = notifyParties[0];
+      const n2 = notifyParties[1];
+      const n3 = notifyParties[2];
+      const n4 = notifyParties[3];
+
+      const wsDoc = workbook.addWorksheet('Bill of Lading', {
+        pageSetup: {
+          paperSize: 9,
+          orientation: 'landscape',
+          fitToPage: true,
+          fitToWidth: 1,
+          fitToHeight: 0,
+          margins: { left: 0.25, right: 0.25, top: 0.25, bottom: 0.25, header: 0.1, footer: 0.1 }
+        },
+        views: [{ showGridLines: true }]
+      });
+
+      wsDoc.columns = [
+        { key: 'A', width: 14.0 },
+        { key: 'B', width: 13.0 },
+        { key: 'C', width: 13.0 },
+        { key: 'D', width: 8.5 },
+        { key: 'E', width: 14.0 },
+        { key: 'F', width: 13.0 },
+        { key: 'G', width: 13.0 },
+        { key: 'H', width: 8.5 },
+        { key: 'I', width: 12.0 },
+        { key: 'J', width: 12.0 },
+        { key: 'K', width: 12.0 },
+        { key: 'L', width: 15.0 }
+      ];
+
+      wsDoc.mergeCells('A1:H1');
+      const r1Left = wsDoc.getCell('A1');
+      r1Left.value = {
+        richText: [
+          { text: 'BILL OF LADING — ', font: { name: 'Calibri', size: 12, bold: true, color: { argb: COLORS.WHITE } } },
+          { text: headerTitle || 'FARAN SUGARS MILLS LTD', font: { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFC000' } } }
+        ]
+      };
+      r1Left.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.NAVY_HEADER } };
+      r1Left.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+      wsDoc.mergeCells('I1:L1');
+      const r1Right = wsDoc.getCell('I1');
+      r1Right.value = `B/L:  ${blNumber || 'OSL-2024-PK40156'}`;
+      r1Right.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.NAVY_HEADER } };
+      r1Right.font = { name: 'Calibri', size: 11, bold: true, color: { argb: COLORS.WHITE } };
+      r1Right.alignment = { vertical: 'middle', horizontal: 'right', indent: 1 };
+      wsDoc.getRow(1).height = 24;
+
+      wsDoc.mergeCells('A2:L2');
+      const r2Cell = wsDoc.getCell('A2');
+      r2Cell.value = `BOOKING REF: ${bookingRef || 'OSL-40156/24(CRO-3476/24)'}   |   CARRIER: ${carrierName || 'MOL / OCEAN SHIPPING LINES'}   |   B/L NO: ${blNumber || 'OSL-2024-PK40156'}`;
+      r2Cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.LIGHT_BLUE_BG } };
+      r2Cell.font = { name: 'Calibri', size: 9.5, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+      r2Cell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      wsDoc.getRow(2).height = 18;
+
+      wsDoc.mergeCells('A3:H3');
+      const s1 = wsDoc.getCell('A3');
+      s1.value = 'SHIPPER / EXPORTER';
+      s1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.LIGHT_BLUE_BG } };
+      s1.font = { name: 'Calibri', size: 9, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+      s1.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+      wsDoc.mergeCells('I3:L3');
+      const s2 = wsDoc.getCell('I3');
+      s2.value = 'B/L REFERENCES & FREIGHT TERMS';
+      s2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.LIGHT_BLUE_BG } };
+      s2.font = { name: 'Calibri', size: 9, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+      s2.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      wsDoc.getRow(3).height = 17;
+
+      wsDoc.mergeCells('A4:H6');
+      const shCell = wsDoc.getCell('A4');
+      shCell.value = shipperText;
+      shCell.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.BLACK } };
+      shCell.alignment = { vertical: 'top', horizontal: 'left', indent: 1, wrapText: true };
+
+      wsDoc.mergeCells('I4:J4');
+      wsDoc.getCell('I4').value = 'REFERENCE NO:';
+      wsDoc.getCell('I4').font = { name: 'Calibri', size: 8, color: { argb: COLORS.GRAY_LABEL } };
+      wsDoc.getCell('I4').alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+      wsDoc.mergeCells('K4:L4');
+      wsDoc.getCell('K4').value = referenceNo;
+      wsDoc.getCell('K4').font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.BLACK } };
+      wsDoc.getCell('K4').alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      wsDoc.getRow(4).height = 16;
+
+      wsDoc.mergeCells('I5:J5');
+      wsDoc.getCell('I5').value = 'CARRIER:';
+      wsDoc.getCell('I5').font = { name: 'Calibri', size: 8, color: { argb: COLORS.GRAY_LABEL } };
+      wsDoc.getCell('I5').alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+      wsDoc.mergeCells('K5:L5');
+      wsDoc.getCell('K5').value = carrierName;
+      wsDoc.getCell('K5').font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.BLACK } };
+      wsDoc.getCell('K5').alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      wsDoc.getRow(5).height = 16;
+
+      wsDoc.mergeCells('A7:H7');
+      const csH = wsDoc.getCell('A7');
+      csH.value = 'CONSIGNEE OR ORDER';
+      csH.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.LIGHT_BLUE_BG } };
+      csH.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+      csH.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+      wsDoc.mergeCells('I7:L7');
+      const ftH = wsDoc.getCell('I7');
+      ftH.value = 'FREIGHT TERMS';
+      ftH.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.LIGHT_BLUE_BG } };
+      ftH.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+      ftH.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      wsDoc.getRow(7).height = 16;
+
+      wsDoc.mergeCells('A8:H8');
+      const csVal = wsDoc.getCell('A8');
+      csVal.value = consigneeText;
+      csVal.font = { name: 'Calibri', size: 9, bold: true, color: { argb: COLORS.BLACK } };
+      csVal.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+      wsDoc.mergeCells('I8:L8');
+      const ftVal = wsDoc.getCell('I8');
+      ftVal.value = `${freightTerms}\n(${movement})`;
+      ftVal.font = { name: 'Calibri', size: 9, bold: true, color: { argb: COLORS.BLACK } };
+      ftVal.alignment = { vertical: 'middle', horizontal: 'left', indent: 1, wrapText: true };
+      wsDoc.getRow(8).height = 24;
+
+      wsDoc.mergeCells('A9:L9');
+      const feCell = wsDoc.getCell('A9');
+      feCell.value = `FORM E NO(s):  ${formENo}`;
+      feCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF1F2' } };
+      feCell.font = { name: 'Calibri', size: 9.5, bold: true, color: { argb: COLORS.RED_ACCENT } };
+      feCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      wsDoc.getRow(9).height = 20;
+
+      wsDoc.mergeCells('A10:F10');
+      const np1Header = wsDoc.getCell('A10');
+      np1Header.value = 'NOTIFY PARTY/ADDRESS #1';
+      np1Header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.LIGHT_BLUE_BG } };
+      np1Header.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+      np1Header.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+      wsDoc.mergeCells('G10:L10');
+      const np2Header = wsDoc.getCell('G10');
+      np2Header.value = 'NOTIFY PARTY/ADDRESS #2';
+      np2Header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.LIGHT_BLUE_BG } };
+      np2Header.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+      np2Header.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      wsDoc.getRow(10).height = 16;
+
+      const np1Text = formatPartyText(n1, 'HUNAN ER-KANG(HK)COMPANY LIMITED', 'ADD: ROOM 703 KOWLOON BUILDING 555 NATHAN RD, KL.\nCERTIFICATE NO. : 61603449-000-06-23-7\nCONTACT: CECILIA TEL: +86 15873056089');
+      const np2Text = formatPartyText(n2, 'NOTIFY PARTY #2 NAME / AGENT', 'LAEM CHABANG LOGISTICS TERMINAL 2, CHONBURI 20230, THAILAND\nTEL: +66 38 490 000');
+
+      wsDoc.mergeCells('A11:F11');
+      const np1Val = wsDoc.getCell('A11');
+      np1Val.value = np1Text;
+      np1Val.font = { name: 'Calibri', size: 8, bold: true, color: { argb: COLORS.BLACK } };
+      np1Val.alignment = { vertical: 'top', horizontal: 'left', indent: 1, wrapText: true };
+
+      wsDoc.mergeCells('G11:L11');
+      const np2Val = wsDoc.getCell('G11');
+      np2Val.value = np2Text;
+      np2Val.font = { name: 'Calibri', size: 8, bold: true, color: { argb: COLORS.BLACK } };
+      np2Val.alignment = { vertical: 'top', horizontal: 'left', indent: 1, wrapText: true };
+
+      const r11Lines = Math.max(np1Text.split('\n').length, np2Text.split('\n').length, 4);
+      wsDoc.getRow(11).height = Math.max(58, r11Lines * 15);
+
+      let curRowIndex = 12;
+
+      if (notifyParties.length > 2) {
+        const rHeader = curRowIndex;
+        wsDoc.mergeCells(`A${rHeader}:F${rHeader}`);
+        const np3Header = wsDoc.getCell(`A${rHeader}`);
+        np3Header.value = 'NOTIFY PARTY/ADDRESS #3';
+        np3Header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.LIGHT_BLUE_BG } };
+        np3Header.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+        np3Header.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+        wsDoc.mergeCells(`G${rHeader}:L${rHeader}`);
+        const np4Header = wsDoc.getCell(`G${rHeader}`);
+        np4Header.value = 'NOTIFY PARTY/ADDRESS #4';
+        np4Header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.LIGHT_BLUE_BG } };
+        np4Header.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+        np4Header.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        wsDoc.getRow(rHeader).height = 16;
+
+        const np3Text = formatPartyText(n3, '', '');
+        const np4Text = formatPartyText(n4, '', '');
+
+        const rVal = curRowIndex + 1;
+        wsDoc.mergeCells(`A${rVal}:F${rVal}`);
+        const np3Val = wsDoc.getCell(`A${rVal}`);
+        np3Val.value = np3Text;
+        np3Val.font = { name: 'Calibri', size: 8, color: { argb: COLORS.BLACK } };
+        np3Val.alignment = { vertical: 'top', horizontal: 'left', indent: 1, wrapText: true };
+
+        wsDoc.mergeCells(`G${rVal}:L${rVal}`);
+        const np4Val = wsDoc.getCell(`G${rVal}`);
+        np4Val.value = np4Text;
+        np4Val.font = { name: 'Calibri', size: 8, color: { argb: COLORS.BLACK } };
+        np4Val.alignment = { vertical: 'top', horizontal: 'left', indent: 1, wrapText: true };
+
+        const rValLines = Math.max(np3Text.split('\n').length, np4Text.split('\n').length, 2);
+        wsDoc.getRow(rVal).height = Math.max(38, rValLines * 15);
+
+        curRowIndex += 2;
+      }
+
+      const rVessel = curRowIndex;
+      wsDoc.mergeCells(`A${rVessel}:F${rVessel}`);
+      const vvCell = wsDoc.getCell(`A${rVessel}`);
+      vvCell.value = `VESSEL AND VOY NO:   ${vesselAndVoy}`;
+      vvCell.font = { name: 'Calibri', size: 8.5, bold: true };
+      vvCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+      wsDoc.mergeCells(`G${rVessel}:L${rVessel}`);
+      const podelCell = wsDoc.getCell(`G${rVessel}`);
+      podelCell.value = `PLACE OF DELIVERY:   ${placeOfDelivery}`;
+      podelCell.font = { name: 'Calibri', size: 8.5, bold: true };
+      podelCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      wsDoc.getRow(rVessel).height = 18;
+
+      const rPort = curRowIndex + 1;
+      wsDoc.mergeCells(`A${rPort}:F${rPort}`);
+      const polCell = wsDoc.getCell(`A${rPort}`);
+      polCell.value = `PORT OF LOADING:   ${portOfLoading}`;
+      polCell.font = { name: 'Calibri', size: 8.5, bold: true };
+      polCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+      wsDoc.mergeCells(`G${rPort}:L${rPort}`);
+      const podCell = wsDoc.getCell(`G${rPort}`);
+      podCell.value = `PORT OF DISCHARGE:   ${portOfDischarge}`;
+      podCell.font = { name: 'Calibri', size: 8.5, bold: true };
+      podCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      wsDoc.getRow(rPort).height = 18;
+
+      applyBorderToRange(wsDoc, 1, 1, 12, rPort, blueBorder);
+
+      const rCargoHeader = rPort + 1;
+      wsDoc.mergeCells(`A${rCargoHeader}:C${rCargoHeader}`);
+      const chMarks = wsDoc.getCell(`A${rCargoHeader}`);
+      chMarks.value = 'MARKS AND NOS:';
+      chMarks.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.NAVY_HEADER } };
+      chMarks.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.WHITE } };
+      chMarks.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+      wsDoc.mergeCells(`D${rCargoHeader}:H${rCargoHeader}`);
+      const chGoods = wsDoc.getCell(`D${rCargoHeader}`);
+      chGoods.value = 'NUMBER AND KIND OF PACKAGES: DESCRIPTION OF GOODS';
+      chGoods.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.NAVY_HEADER } };
+      chGoods.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.WHITE } };
+      chGoods.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+      wsDoc.mergeCells(`I${rCargoHeader}:J${rCargoHeader}`);
+      const chGross = wsDoc.getCell(`I${rCargoHeader}`);
+      chGross.value = 'GROSS WEIGHT';
+      chGross.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.NAVY_HEADER } };
+      chGross.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.WHITE } };
+      chGross.alignment = { vertical: 'middle', horizontal: 'right', indent: 1 };
+
+      wsDoc.mergeCells(`K${rCargoHeader}:L${rCargoHeader}`);
+      const chMeas = wsDoc.getCell(`K${rCargoHeader}`);
+      chMeas.value = 'MEASURMENT';
+      chMeas.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.NAVY_HEADER } };
+      chMeas.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.WHITE } };
+      chMeas.alignment = { vertical: 'middle', horizontal: 'right', indent: 1 };
+      wsDoc.getRow(rCargoHeader).height = 20;
+
+      const rCargoBody = rCargoHeader + 1;
+      wsDoc.mergeCells(`A${rCargoBody}:C${rCargoBody}`);
+      const mnBody = wsDoc.getCell(`A${rCargoBody}`);
+      mnBody.value = marksAndNumbers;
+      mnBody.font = { name: 'Calibri', size: 8.5, bold: true };
+      mnBody.alignment = { vertical: 'top', horizontal: 'left', indent: 1, wrapText: true };
+
+      wsDoc.mergeCells(`D${rCargoBody}:H${rCargoBody}`);
+      const descBody = wsDoc.getCell(`D${rCargoBody}`);
+      descBody.value = cargoDescription;
+      descBody.font = { name: 'Calibri', size: 8, bold: true };
+      descBody.alignment = { vertical: 'top', horizontal: 'left', indent: 1, wrapText: true };
+
+      wsDoc.mergeCells(`I${rCargoBody}:J${rCargoBody}`);
+      const wtBody = wsDoc.getCell(`I${rCargoBody}`);
+      wtBody.value = `${grossWeight} ${grossWeightUnit}\n\nNETT WEIGHT\n${nettWeight} ${nettWeightUnit}\n\n${totalPackagesCount}\n${totalPackagesUnit}`;
+      wtBody.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+      wtBody.alignment = { vertical: 'top', horizontal: 'right', indent: 1, wrapText: true };
+
+      wsDoc.mergeCells(`K${rCargoBody}:L${rCargoBody}`);
+      const msBody = wsDoc.getCell(`K${rCargoBody}`);
+      msBody.value = measurement;
+      msBody.font = { name: 'Calibri', size: 8.5, bold: true };
+      msBody.alignment = { vertical: 'top', horizontal: 'right', indent: 1 };
+
+      wsDoc.getRow(rCargoBody).height = 135;
+      applyBorderToRange(wsDoc, 1, rCargoHeader, 12, rCargoBody, blueBorder);
+
+      const rContHeader = rCargoBody + 1;
+      wsDoc.mergeCells(`A${rContHeader}:H${rContHeader}`);
+      const cTitle = wsDoc.getCell(`A${rContHeader}`);
+      cTitle.value = `SEAL NO: / CONTAINER NO:   (${activeCount} CONT)`;
+      cTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.NAVY_HEADER } };
+      cTitle.font = { name: 'Calibri', size: 9, bold: true, color: { argb: COLORS.WHITE } };
+      cTitle.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+      wsDoc.mergeCells(`I${rContHeader}:L${rContHeader}`);
+      const scTitle = wsDoc.getCell(`I${rContHeader}`);
+      scTitle.value = 'SPECIAL INSTRUCTIONS / CLAUSES';
+      scTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.LIGHT_BLUE_BG } };
+      scTitle.font = { name: 'Calibri', size: 9, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+      scTitle.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      wsDoc.getRow(rContHeader).height = 18;
+
+      const rContSub = rContHeader + 1;
+      const pkgSubLabel = totalPackagesUnit === 'BAGS' ? 'BAGS' : totalPackagesUnit;
+      const subCols = [
+        { col: 1, val: 'Container No.', align: 'left', indent: 1 },
+        { col: 2, val: 'Net Wt (kg)', align: 'right', indent: 0 },
+        { col: 3, val: 'Gross Wt (kg)', align: 'right', indent: 0 },
+        { col: 4, val: pkgSubLabel, align: 'right', indent: 0 },
+        { col: 5, val: 'Container No.', align: 'left', indent: 1 },
+        { col: 6, val: 'Net Wt (kg)', align: 'right', indent: 0 },
+        { col: 7, val: 'Gross Wt (kg)', align: 'right', indent: 0 },
+        { col: 8, val: pkgSubLabel, align: 'right', indent: 0 },
+      ];
+
+      subCols.forEach(sc => {
+        const cell = wsDoc.getRow(rContSub).getCell(sc.col);
+        cell.value = sc.val;
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.LIGHT_BLUE_BG } };
+        cell.font = { name: 'Calibri', size: 7.5, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+        cell.alignment = { vertical: 'middle', horizontal: sc.align, indent: sc.indent };
+        cell.border = blueBorder;
+      });
+      wsDoc.getRow(rContSub).height = 16;
+
+      const half = Math.ceil(containers.length / 2);
+      const leftCol = containers.slice(0, half);
+      const rightCol = containers.slice(half);
+      const rowCount = Math.max(leftCol.length, rightCol.length, 20);
+
+      wsDoc.mergeCells(`I${rContSub}:L${rContSub + rowCount - 1}`);
+      const scBodyCell = wsDoc.getCell(`I${rContSub}`);
+      scBodyCell.value = `${specialClauses.join('\n\n')}\n\n\n\n${containerSummaryLine}`;
+      scBodyCell.font = { name: 'Calibri', size: 8, bold: true, color: { argb: COLORS.BLACK } };
+      scBodyCell.alignment = { vertical: 'top', horizontal: 'left', indent: 1, wrapText: true };
+      applyBorderToRange(wsDoc, 9, rContSub, 12, rContSub + rowCount - 1, blueBorder);
+
+      for (let i = 0; i < rowCount; i++) {
+        const rNum = rContSub + 1 + i;
+        const isZebra = i % 2 === 1;
+        const bgArgb = isZebra ? COLORS.ICE_BLUE_ROW : COLORS.WHITE;
+        const row = wsDoc.getRow(rNum);
+        row.height = 13.5;
+
+        const c1 = leftCol[i];
+        const hasC1 = Boolean(c1 && c1.containerNo && c1.containerNo.trim() !== '');
+        if (hasC1) {
+          const netVal = (c1.netWeightKg && c1.netWeightKg > 0) ? c1.netWeightKg : perContNet;
+          const grossVal = (c1.grossWeightKg && c1.grossWeightKg > 0) ? c1.grossWeightKg : perContGross;
+          const bagsVal = (c1.packageCount && c1.packageCount > 0) ? c1.packageCount : perContBags;
+
+          const c1No = row.getCell(1);
+          c1No.value = c1.containerNo.trim();
+          c1No.font = { name: 'Consolas', size: 8, bold: true };
+          c1No.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+          const c1Net = row.getCell(2);
+          c1Net.value = Number(netVal.toFixed(2));
+          c1Net.numFmt = '#,##0.00';
+          c1Net.font = { name: 'Calibri', size: 8 };
+          c1Net.alignment = { vertical: 'middle', horizontal: 'right' };
+
+          const c1Gross = row.getCell(3);
+          c1Gross.value = Number(grossVal.toFixed(2));
+          c1Gross.numFmt = '#,##0.00';
+          c1Gross.font = { name: 'Calibri', size: 8 };
+          c1Gross.alignment = { vertical: 'middle', horizontal: 'right' };
+
+          const c1Bags = row.getCell(4);
+          c1Bags.value = Number(bagsVal);
+          c1Bags.numFmt = '#,##0';
+          c1Bags.font = { name: 'Calibri', size: 8 };
+          c1Bags.alignment = { vertical: 'middle', horizontal: 'right' };
+        } else {
+          row.getCell(1).value = '';
+          row.getCell(2).value = '';
+          row.getCell(3).value = '';
+          row.getCell(4).value = '';
+        }
+
+        const c2 = rightCol[i];
+        const hasC2 = Boolean(c2 && c2.containerNo && c2.containerNo.trim() !== '');
+        if (hasC2) {
+          const netVal = (c2.netWeightKg && c2.netWeightKg > 0) ? c2.netWeightKg : perContNet;
+          const grossVal = (c2.grossWeightKg && c2.grossWeightKg > 0) ? c2.grossWeightKg : perContGross;
+          const bagsVal = (c2.packageCount && c2.packageCount > 0) ? c2.packageCount : perContBags;
+
+          const c2No = row.getCell(5);
+          c2No.value = c2.containerNo.trim();
+          c2No.font = { name: 'Consolas', size: 8, bold: true };
+          c2No.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+          const c2Net = row.getCell(6);
+          c2Net.value = Number(netVal.toFixed(2));
+          c2Net.numFmt = '#,##0.00';
+          c2Net.font = { name: 'Calibri', size: 8 };
+          c2Net.alignment = { vertical: 'middle', horizontal: 'right' };
+
+          const c2Gross = row.getCell(7);
+          c2Gross.value = Number(grossVal.toFixed(2));
+          c2Gross.numFmt = '#,##0.00';
+          c2Gross.font = { name: 'Calibri', size: 8 };
+          c2Gross.alignment = { vertical: 'middle', horizontal: 'right' };
+
+          const c2Bags = row.getCell(8);
+          c2Bags.value = Number(bagsVal);
+          c2Bags.numFmt = '#,##0';
+          c2Bags.font = { name: 'Calibri', size: 8 };
+          c2Bags.alignment = { vertical: 'middle', horizontal: 'right' };
+        } else {
+          row.getCell(5).value = '';
+          row.getCell(6).value = '';
+          row.getCell(7).value = '';
+          row.getCell(8).value = '';
+        }
+
+        for (let col = 1; col <= 8; col++) {
+          const cell = row.getCell(col);
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgArgb } };
+          cell.border = blueBorder;
+        }
+      }
+
+      const totalsRowNum = rContSub + rowCount;
+      wsDoc.mergeCells(`A${totalsRowNum}:H${totalsRowNum}`);
+      const contTotalsBar = wsDoc.getCell(`A${totalsRowNum}`);
+      contTotalsBar.value = `TOTALS: ${activeCount} CONTAINER(S)   |   NET: ${activeNetKg.toLocaleString('en-US', { minimumFractionDigits: 2 })} KG   |   GROSS: ${activeGrossKg.toLocaleString('en-US', { minimumFractionDigits: 2 })} KG   |   ${activeBags.toLocaleString()} ${totalPackagesUnit}`;
+      contTotalsBar.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.LIGHT_BLUE_BG } };
+      contTotalsBar.font = { name: 'Calibri', size: 9, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+      contTotalsBar.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      wsDoc.mergeCells(`I${totalsRowNum}:L${totalsRowNum}`);
+      const contSummaryBar = wsDoc.getCell(`I${totalsRowNum}`);
+      contSummaryBar.value = 'CONTAINER SUMMARY VERIFIED';
+      contSummaryBar.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.LIGHT_BLUE_BG } };
+      contSummaryBar.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.NAVY_TEXT } };
+      contSummaryBar.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      wsDoc.getRow(totalsRowNum).height = 19;
+      applyBorderToRange(wsDoc, 1, totalsRowNum, 12, totalsRowNum, {
+        top: { style: 'thin', color: { argb: COLORS.BORDER_NAVY } },
+        bottom: { style: 'double', color: { argb: COLORS.BORDER_NAVY } },
+        left: { style: 'thin', color: { argb: COLORS.BORDER_BLUE } },
+        right: { style: 'thin', color: { argb: COLORS.BORDER_BLUE } },
+      });
+
+      const apRowNum = totalsRowNum + 1;
+      wsDoc.mergeCells(`A${apRowNum}:L${apRowNum}`);
+      const apBanner = wsDoc.getCell(`A${apRowNum}`);
+      apBanner.value = 'ABOVE PARTICULARS AS DECLARED BY SHIPPER';
+      apBanner.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.NAVY_HEADER } };
+      apBanner.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: COLORS.WHITE } };
+      apBanner.alignment = { vertical: 'middle', horizontal: 'center' };
+      wsDoc.getRow(apRowNum).height = 16;
+      applyBorderToRange(wsDoc, 1, apRowNum, 12, apRowNum, navyBorder);
+
+      const f1RowNum = apRowNum + 1;
+      const f2RowNum = apRowNum + 2;
+
+      wsDoc.mergeCells(`A${f1RowNum}:D${f1RowNum}`);
+      const f1Cell = wsDoc.getCell(`A${f1RowNum}`);
+      f1Cell.value = `TOTAL NO. OF CONTAINERS/PACKAGES\n${totalContainersPackages || activeCount + "X20'  FCL"}`;
+      f1Cell.font = { name: 'Calibri', size: 8, bold: true };
+      f1Cell.alignment = { vertical: 'top', horizontal: 'left', indent: 1, wrapText: true };
+
+      wsDoc.mergeCells(`E${f1RowNum}:H${f1RowNum}`);
+      const f2Cell = wsDoc.getCell(`E${f1RowNum}`);
+      f2Cell.value = `FREIGHT PAYABLE AT\n${freightTerms}`;
+      f2Cell.font = { name: 'Calibri', size: 8, bold: true };
+      f2Cell.alignment = { vertical: 'top', horizontal: 'left', indent: 1, wrapText: true };
+
+      wsDoc.mergeCells(`I${f1RowNum}:L${f2RowNum}`);
+      const f3Cell = wsDoc.getCell(`I${f1RowNum}`);
+      f3Cell.value = `PLACE AND DATE OF ISSUE\n${placeAndDateOfIssue}\n\n\nAS CARRIER / AUTHORIZED AGENT`;
+      f3Cell.font = { name: 'Calibri', size: 8, bold: true };
+      f3Cell.alignment = { vertical: 'top', horizontal: 'left', indent: 1, wrapText: true };
+
+      wsDoc.mergeCells(`A${f2RowNum}:D${f2RowNum}`);
+      const f4Cell = wsDoc.getCell(`A${f2RowNum}`);
+      f4Cell.value = `MOVEMENT\n${movement}`;
+      f4Cell.font = { name: 'Calibri', size: 8, bold: true };
+      f4Cell.alignment = { vertical: 'top', horizontal: 'left', indent: 1, wrapText: true };
+
+      wsDoc.mergeCells(`E${f2RowNum}:H${f2RowNum}`);
+      const f5Cell = wsDoc.getCell(`E${f2RowNum}`);
+      f5Cell.value = `NUMBER OF ORIGINAL B/L\n${numberOfOriginals}`;
+      f5Cell.font = { name: 'Calibri', size: 8, bold: true };
+      f5Cell.alignment = { vertical: 'top', horizontal: 'left', indent: 1, wrapText: true };
+
+      wsDoc.getRow(f1RowNum).height = 32;
+      wsDoc.getRow(f2RowNum).height = 32;
+
+      applyBorderToRange(wsDoc, 1, f1RowNum, 4, f1RowNum, blueBorder);
+      applyBorderToRange(wsDoc, 5, f1RowNum, 8, f1RowNum, blueBorder);
+      applyBorderToRange(wsDoc, 1, f2RowNum, 4, f2RowNum, blueBorder);
+      applyBorderToRange(wsDoc, 5, f2RowNum, 8, f2RowNum, blueBorder);
+      applyBorderToRange(wsDoc, 9, f1RowNum, 12, f2RowNum, blueBorder);
+      applyBorderToRange(wsDoc, 1, 1, 12, f2RowNum, blueBorder);
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      saveAs(blob, `Bill_of_Lading_${blNumber || 'OSL-2024-PK40156'}.xlsx`);
+    });
+  </script>
+</body>
+</html>

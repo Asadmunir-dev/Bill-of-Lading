@@ -1,0 +1,72 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and shipping defaults",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "defaultShipper": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "BillOfLading": {
+      "title": "BillOfLading",
+      "description": "Complete Ocean Shipping Lines Bill of Lading record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "headerTitle": { "type": "string" },
+        "blNumber": { "type": "string" },
+        "bookingRef": { "type": "string" },
+        "carrierName": { "type": "string" },
+        "shipperText": { "type": "string" },
+        "referenceNo": { "type": "string" },
+        "consigneeText": { "type": "string" },
+        "freightPayableAt": { "type": "string" },
+        "formENumber": { "type": "string" },
+        "vesselAndVoy": { "type": "string" },
+        "placeOfDelivery": { "type": "string" },
+        "portOfLoading": { "type": "string" },
+        "portOfDischarge": { "type": "string" },
+        "marksAndNumbers": { "type": "string" },
+        "cargoDescription": { "type": "string" },
+        "grossWeight": { "type": "string" },
+        "grossWeightUnit": { "type": "string" },
+        "nettWeight": { "type": "string" },
+        "nettWeightUnit": { "type": "string" },
+        "totalPackagesCount": { "type": "string" },
+        "totalPackagesUnit": { "type": "string" },
+        "measurement": { "type": "string" },
+        "containerSummaryLine": { "type": "string" },
+        "totalContainersPackages": { "type": "string" },
+        "movement": { "type": "string" },
+        "numberOfOriginals": { "type": "string" },
+        "placeAndDateOfIssue": { "type": "string" },
+        "specialClauses": { "type": "array" },
+        "notifyParties": { "type": "array" },
+        "containers": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "blNumber"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile and shipping defaults"
+    },
+    "/users/{userId}/bills_of_lading/{billId}": {
+      "schema": "BillOfLading",
+      "description": "User's saved Bills of Lading"
+    }
+  }
+}
